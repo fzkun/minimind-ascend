@@ -1,0 +1,18 @@
+FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/ascend-pytorch:24.0.0-2.6.0-A2-910b-openeuler22.03-py3.10-cann8.1.RC1
+
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+
+WORKDIR /workspace/minimind
+COPY . /workspace/minimind/
+
+RUN pip install --no-cache-dir -r requirements_npu.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --trusted-host pypi.tuna.tsinghua.edu.cn
+
+ENV HCCL_CONNECT_TIMEOUT=7200
+ENV HCCL_EXEC_TIMEOUT=7200
+ENV TASK_QUEUE_ENABLE=1
+ENV ASCEND_RT_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+
+CMD ["npu-smi", "info"]

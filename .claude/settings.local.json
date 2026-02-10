@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:gitcode.com)",
+      "WebFetch(domain:zhuanlan.zhihu.com)",
+      "Bash(ls:*)",
+      "Bash(chmod:*)",
+      "Bash(xargs:*)",
+      "Bash(wc:*)"
+    ]
+  }
+}

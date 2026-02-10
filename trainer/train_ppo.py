@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from transformers import AutoModel
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from dataset.lm_dataset import RLAIFDataset
-from trainer.trainer_utils import Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, SkipBatchSampler, init_model
+from trainer.trainer_utils import Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, SkipBatchSampler, init_model, is_npu_available
 
 warnings.filterwarnings('ignore')
 
@@ -256,8 +256,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=2, help="batch size")
     parser.add_argument("--learning_rate", type=float, default=8e-8, help="Actor学习率")
     parser.add_argument("--critic_learning_rate", type=float, default=8e-8, help="Critic学习率")
-    parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
-    parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
+    parser.add_argument("--device", type=str, default="npu:0" if is_npu_available() else ("cuda:0" if torch.cuda.is_available() else "cpu"), help="训练设备")
+    parser.add_argument("--dtype", type=str, default="float16" if is_npu_available() else "bfloat16", help="混合精度类型")
     parser.add_argument("--num_workers", type=int, default=8, help="数据加载线程数")
     parser.add_argument("--accumulation_steps", type=int, default=1, help="梯度累积步数")
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
@@ -283,7 +283,7 @@ if __name__ == "__main__":
 
     # ========== 1. 初始化环境和随机种子 ==========
     local_rank = init_distributed_mode()
-    if dist.is_initialized(): args.device = f"cuda:{local_rank}"
+    if dist.is_initialized(): args.device = f"npu:{local_rank}" if is_npu_available() else f"cuda:{local_rank}"
     setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
     
     # ========== 2. 配置目录、模型参数、检查ckp ==========
@@ -292,9 +292,19 @@ if __name__ == "__main__":
     ckp_data = lm_checkpoint(lm_config, weight=args.save_weight, save_dir='../checkpoints') if args.from_resume==1 else None
     
     # ========== 3. 设置混合精度 ==========
-    device_type = "cuda" if "cuda" in args.device else "cpu"
+    if "npu" in args.device:
+        device_type = "npu"
+    elif "cuda" in args.device:
+        device_type = "cuda"
+    else:
+        device_type = "cpu"
     dtype = torch.bfloat16 if args.dtype == "bfloat16" else torch.float16
-    autocast_ctx = nullcontext() if device_type == "cpu" else torch.cuda.amp.autocast(dtype=dtype)
+    if device_type == "cpu":
+        autocast_ctx = nullcontext()
+    elif device_type == "npu":
+        autocast_ctx = torch.amp.autocast(device_type='npu', dtype=dtype)
+    else:
+        autocast_ctx = torch.cuda.amp.autocast(dtype=dtype)
     
     # ========== 4. 配wandb ==========
     wandb = None
@@ -310,8 +320,11 @@ if __name__ == "__main__":
     # Actor模型
     actor_model, tokenizer = init_model(lm_config, base_weight, device=args.device)
     if args.use_compile == 1:
-        actor_model = torch.compile(actor_model)
-        Logger('torch.compile enabled')
+        if is_npu_available():
+            Logger('WARNING: torch.compile NPU支持有限，已跳过')
+        else:
+            actor_model = torch.compile(actor_model)
+            Logger('torch.compile enabled')
     # Old Actor模型
     old_actor_model, _ = init_model(lm_config, base_weight, device=args.device)
     old_actor_model = old_actor_model.eval().requires_grad_(False)

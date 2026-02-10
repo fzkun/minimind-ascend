@@ -9,11 +9,19 @@ import random
 import math
 import numpy as np
 import torch
+try:
+    import torch_npu
+    _NPU_AVAILABLE = True
+except ImportError:
+    _NPU_AVAILABLE = False
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import Sampler
 from transformers import AutoTokenizer
 from model.model_minimind import MiniMindForCausalLM
+
+def is_npu_available():
+    return _NPU_AVAILABLE
 
 def get_model_params(model, config):
     total = sum(p.numel() for p in model.parameters()) / 1e6
@@ -45,9 +53,14 @@ def init_distributed_mode():
     if int(os.environ.get("RANK", -1)) == -1:
         return 0  # 非DDP模式
 
-    dist.init_process_group(backend="nccl")
-    local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
+    if _NPU_AVAILABLE:
+        dist.init_process_group(backend="hccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.npu.set_device(local_rank)
+    else:
+        dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
+        torch.cuda.set_device(local_rank)
     return local_rank
 
 
@@ -55,10 +68,14 @@ def setup_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    if _NPU_AVAILABLE:
+        torch.npu.manual_seed(seed)
+        torch.npu.manual_seed_all(seed)
+    else:
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoch=0, step=0, wandb=None, save_dir='../checkpoints', **kwargs):
     os.makedirs(save_dir, exist_ok=True)
@@ -103,7 +120,10 @@ def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoc
         torch.save(resume_data, resume_tmp)
         os.replace(resume_tmp, resume_path)
         del state_dict, resume_data
-        torch.cuda.empty_cache()
+        if _NPU_AVAILABLE:
+            torch.npu.empty_cache()
+        else:
+            torch.cuda.empty_cache()
     else:  # 加载模式
         if os.path.exists(resume_path):
             ckp_data = torch.load(resume_path, map_location='cpu')
