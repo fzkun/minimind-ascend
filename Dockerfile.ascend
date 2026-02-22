@@ -1,14 +1,39 @@
-FROM swr.cn-south-1.myhuaweicloud.com/ascendhub/ascend-pytorch:24.0.0-2.6.0-A2-910b-openeuler22.03-py3.10-cann8.1.RC1
-
-ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+FROM ascend-pretrain:latest
 
 WORKDIR /workspace/minimind
 COPY . /workspace/minimind/
 
-RUN pip install --no-cache-dir -r requirements_npu.txt \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    --trusted-host pypi.tuna.tsinghua.edu.cn
+# 升级 transformers + tokenizers 以兼容新格式 tokenizer.json
+RUN pip install --no-cache-dir --force-reinstall \
+    transformers==4.45.2 \
+    tokenizers==0.20.4 \
+    huggingface_hub>=0.24 \
+    -q
+
+# 修复 transformers 4.45 与 torch 2.1 的 pytree 兼容性问题
+# 在 torch.utils._pytree 中添加缺失的 register_pytree_node 作为 no-op
+RUN SITE_PKG=$(python3 -c "import site; print(site.getsitepackages()[0])") && \
+    echo 'import torch.utils._pytree as _p; hasattr(_p, "register_pytree_node") or setattr(_p, "register_pytree_node", lambda *a, **k: None)' > "$SITE_PKG/fix_pytree.py" && \
+    echo 'import fix_pytree' > "$SITE_PKG/fix_pytree.pth" && \
+    python3 -c "import torch; import transformers; print('transformers', transformers.__version__, 'OK')"
+
+# 安装预训练额外依赖
+RUN pip install --no-cache-dir --no-deps \
+    jieba==0.42.1 \
+    jsonlines==4.0.0 \
+    marshmallow==3.22.0 \
+    rich==13.7.1 \
+    psutil==5.9.8 \
+    ujson==5.1.0 \
+    einops==0.8.1 \
+    -q && \
+    pip install --no-cache-dir \
+    wandb==0.18.3 \
+    swanlab==0.6.8 \
+    -q 2>/dev/null || true
+
+# 确保 numpy<2，CANN 不兼容 numpy 2.x
+RUN pip install --no-cache-dir "numpy<2" -q
 
 ENV HCCL_CONNECT_TIMEOUT=7200
 ENV HCCL_EXEC_TIMEOUT=7200

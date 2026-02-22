@@ -18,5 +18,9 @@
 TRAIN_MODE=${1:-pretrain}
 shift
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_DIR/trainer"
+
 torchrun --nnodes=1 --nproc_per_node=8 --master_port=29500 \
-    trainer/train_${TRAIN_MODE}.py "$@"
+    train_${TRAIN_MODE}.py "$@"

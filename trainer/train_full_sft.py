@@ -118,7 +118,7 @@ if __name__ == "__main__":
     if device_type == "cpu":
         autocast_ctx = nullcontext()
     elif device_type == "npu":
-        autocast_ctx = torch.amp.autocast(device_type='npu', dtype=dtype)
+        autocast_ctx = torch.cuda.amp.autocast(dtype=dtype)
     else:
         autocast_ctx = torch.cuda.amp.autocast(dtype=dtype)
     
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
     if is_npu_available():
-        scaler = torch.amp.GradScaler('npu', enabled=(args.dtype == 'float16'))
+        scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     else:
         scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
