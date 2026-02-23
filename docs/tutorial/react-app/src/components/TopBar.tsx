@@ -1,8 +1,9 @@
 import { useTheme } from '../context/ThemeContext';
 
 const TAB_LABELS = [
-  '1.分词', '2.Embedding', '3.注意力', '4.RoPE',
-  '5.FFN&MoE', '6.训练流程', '7.前向传播',
+  '1.分词', '2.词向量', '3.注意力', '4.位置编码',
+  '5.前馈网络', '6.训练流程', '7.推理过程',
+  '8.上线部署', '9.昇腾实战',
 ];
 
 interface TopBarProps {

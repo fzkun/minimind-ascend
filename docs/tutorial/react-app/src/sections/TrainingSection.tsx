@@ -205,7 +205,12 @@ export default function TrainingSection() {
     <>
       <h2>6. 训练流程</h2>
       <p className="desc">
-        MiniMind 的完整训练流程包含预训练、监督微调 (SFT)、对齐训练 (DPO/PPO/GRPO) 等阶段，每个阶段产出独立的权重文件。
+        MiniMind 的完整训练分多个阶段串联执行，每个阶段产出独立的 <code>.pth</code> 权重文件，下一阶段通过 <code>--from_weight</code> 加载上一阶段的结果继续训练。
+        流程：Pretrain → SFT → LoRA → DPO → GRPO → Inference。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>trainer/train_pretrain.py:23</code> | <code>trainer/train_full_sft.py:23</code> | <code>trainer/train_dpo.py:33</code> <code>dpo_loss()</code> | <code>trainer/trainer_utils.py:139</code> <code>init_model()</code>
+        </small>
       </p>
 
       <Card title="Pipeline 流程图">

@@ -10,6 +10,8 @@ const sections = [
   lazy(() => import('./sections/FFNMoESection')),
   lazy(() => import('./sections/TrainingSection')),
   lazy(() => import('./sections/ForwardPassSection')),
+  lazy(() => import('./sections/DeploySection')),
+  lazy(() => import('./sections/NPUDockerSection')),
 ];
 
 export default function App() {

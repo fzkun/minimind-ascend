@@ -7,7 +7,14 @@
       "Bash(ls:*)",
       "Bash(chmod:*)",
       "Bash(xargs:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "WebFetch(domain:swr.cn-south-1.myhuaweicloud.com)",
+      "WebFetch(domain:ascendhub.huawei.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:hub.docker.com)",
+      "WebFetch(domain:www.aidoczh.com)",
+      "WebFetch(domain:support.huawei.com)",
+      "WebFetch(domain:lmdeploy.readthedocs.io)"
     ]
   }
 }

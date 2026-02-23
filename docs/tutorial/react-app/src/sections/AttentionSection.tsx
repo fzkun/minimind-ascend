@@ -163,9 +163,15 @@ export default function AttentionSection() {
 
   return (
     <>
-      <h2>3. 自注意力机制 (Self-Attention)</h2>
+      <h2>3. 自注意力 (Self-Attention)</h2>
       <p className="desc">
-        注意力机制让每个 token 能"看到"序列中的其他 token。MiniMind 使用 GQA（分组查询注意力）：8 个 Q 头共享 2 个 KV 头，head_dim = 64。
+        注意力机制让序列中的每个 token 能"看到"其他 token 并动态计算相关度权重。
+        MiniMind 使用 GQA（分组查询注意力）：<code>num_attention_heads=8</code> 个 Q 头共享 <code>num_kv_heads=2</code> 个 KV 头，
+        每个头的维度 <code>head_dim=64</code>。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>model/model_minimind.py:150</code> <code>class Attention</code> | <code>:169</code> <code>def forward</code>
+        </small>
       </p>
 
       <Card title="Q / K / V 计算与 GQA 分组">

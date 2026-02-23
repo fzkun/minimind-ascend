@@ -79,7 +79,12 @@ export default function EmbeddingSection() {
     <>
       <h2>2. Token Embedding</h2>
       <p className="desc">
-        每个 token ID 通过 Embedding 矩阵查找得到一个 hidden_size=512 维的向量。MiniMind 中 Embedding 层和 LM Head 共享权重。
+        把 token ID 映射成一个 <code>hidden_size=512</code> 维的向量，相当于 <code>nn.Embedding(6400, 512)</code> 的查表操作：
+        输入 token ID，输出一行 512 维浮点数。MiniMind 中 Embedding 层和 LM Head 共享同一个权重矩阵（<code>tie_word_embeddings=True</code>）。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>model/model_minimind.py:381</code> <code>self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)</code>
+        </small>
       </p>
 
       <Card title="矩阵查找动画">

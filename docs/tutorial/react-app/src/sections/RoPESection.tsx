@@ -163,7 +163,13 @@ export default function RoPESection() {
     <>
       <h2>4. RoPE 位置编码</h2>
       <p className="desc">
-        旋转位置编码 (RoPE) 通过旋转向量将位置信息编码到 Q/K 中，使注意力分数自然反映相对位置。MiniMind 还支持 YaRN 频率缩放实现长上下文外推。
+        旋转位置编码 (RoPE) 把位置信息注入到 Q/K 向量中，让 attention score 自然反映 token 之间的相对距离。
+        核心操作是对 Q/K 的每对相邻维度做旋转，角度由 <code>rope_theta=1e6</code> 和位置索引决定。
+        MiniMind 还支持 YaRN 频率缩放，实现长上下文外推。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>model/model_minimind.py:109</code> <code>def precompute_freqs_cis()</code> | <code>:105</code> <code>def forward</code> (apply_rotary_emb)
+        </small>
       </p>
 
       <Card title="旋转向量动画">

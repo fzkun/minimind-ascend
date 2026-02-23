@@ -152,9 +152,14 @@ export default function ForwardPassSection() {
 
   return (
     <>
-      <h2>7. 完整前向传播</h2>
+      <h2>7. 推理过程（Forward Pass）</h2>
       <p className="desc">
-        一次完整的前向传播：Input IDs → Embedding → 8 × TransformerBlock(RMSNorm → Attention → Add → RMSNorm → FFN → Add) → RMSNorm → LM Head → Logits
+        一次完整的推理就是数据在模型中从头到尾走一遍的过程。用代码概括：<code>logits = lm_head(rms_norm(transformer_blocks(embedding(input_ids))))</code>，
+        其中 <code>transformer_blocks</code> 重复 8 次，每次包含 Attention + FFN + 残差连接。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>model/model_minimind.py:442</code> <code>MiniMindForCausalLM.forward()</code> | <code>:392</code> <code>MiniMindModel.forward()</code> | <code>:365</code> <code>MiniMindBlock.forward()</code>
+        </small>
       </p>
 
       <Card title="逐步穿越动画">

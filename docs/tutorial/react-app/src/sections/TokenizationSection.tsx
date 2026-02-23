@@ -139,9 +139,14 @@ export default function TokenizationSection() {
 
   return (
     <>
-      <h2>1. 分词过程 (Tokenization)</h2>
+      <h2>1. 分词 (Tokenization)</h2>
       <p className="desc">
-        将原始文本拆分为 token 序列，是 LLM 处理语言的第一步。MiniMind 使用 BPE（字节对编码）分词器，词表大小 vocab_size = 6400。
+        LLM 处理文本的第一步：把原始字符串拆成 token 列表，每个 token 对应词表中的一个整数 ID。
+        MiniMind 使用 BPE 分词器，<code>vocab_size=6400</code>，调用方式类似 <code>tokenizer.encode("你好")</code> → <code>[868, 1059]</code>。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>trainer/train_tokenizer.py:18</code> 训练分词器 | <code>model/tokenizer.json</code> 词表文件
+        </small>
       </p>
 
       <Card title="BPE 合并动画">

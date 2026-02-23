@@ -311,7 +311,13 @@ export default function FFNMoESection() {
     <>
       <h2>5. 前馈网络 &amp; MoE</h2>
       <p className="desc">
-        每个 Transformer Block 中，注意力之后是前馈网络 (FFN)。MiniMind 使用 SwiGLU 激活，并可选择 MoE（混合专家）架构替换标准 FFN。
+        每个 Transformer Block 中，Attention 之后是前馈网络 (FFN)，对每个 token 独立做非线性变换。
+        MiniMind 使用 SwiGLU 结构：<code>output = silu(x @ W_gate) * (x @ W_up) @ W_down</code>。
+        可通过 <code>use_moe=True</code> 切换为 MoE（混合专家）架构——多个 Expert FFN 由 Router 动态选择 top-k 激活。
+        <br/>
+        <small style={{ color: 'var(--fg2)' }}>
+          关联源码：<code>model/model_minimind.py:216</code> <code>class FeedForward</code> | <code>:232</code> <code>class MoEGate</code> | <code>:288</code> <code>class MOEFeedForward</code>
+        </small>
       </p>
 
       <Card title="SwiGLU 数据流">
