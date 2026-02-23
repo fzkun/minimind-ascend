@@ -19,10 +19,13 @@
 #   spo         — SPO 强化学习（8卡，需 reward 模型）
 #   distillation — 知识蒸馏（8卡，需教师模型）
 #   eval        — 推理测试（单卡）
+#   convert     — 转换模型为 HuggingFace 格式（供 vLLM 使用）
+#   vllm        — 使用 vLLM 启动 OpenAI 兼容 API 服务
 #
 # 预设组合:
 #   all   = download build pretrain full_sft dpo reason eval
 #   core  = download build pretrain full_sft eval
+#   serve = convert vllm
 #   rl    = ppo grpo spo
 #
 # 选项:
@@ -33,6 +36,10 @@
 #   --teacher-hidden-size N  教师模型维度（蒸馏用，默认 768）
 #   --inside-docker       跳过 Docker 启动，直接在容器内执行
 #   --force-build         强制重建 Docker 镜像
+#   --weight NAME         权重名称前缀（convert/vllm 用，默认 full_sft）
+#   --vllm-image IMAGE    vLLM Docker 镜像（默认 quay.io/ascend/vllm-ascend:v0.13.0）
+#   --vllm-port PORT      vLLM 服务端口（默认 8000）
+#   --max-model-len N     vLLM 最大序列长度（默认 2048）
 #   --dry-run             仅打印将要执行的命令，不实际执行
 #   --help                显示帮助信息
 
@@ -50,6 +57,11 @@ RESUME_FLAG=""
 INSIDE_DOCKER=0
 FORCE_BUILD=0
 DRY_RUN=0
+WEIGHT_NAME="full_sft"
+VLLM_IMAGE="quay.io/ascend/vllm-ascend:v0.13.0"
+VLLM_PORT=8000
+MAX_MODEL_LEN=2048
+VLLM_CONTAINER_NAME="vllm-minimind"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -79,7 +91,7 @@ log_error() {
 }
 
 show_help() {
-    head -n 38 "$0" | tail -n +2 | sed 's/^# \?//'
+    head -n 44 "$0" | tail -n +2 | sed 's/^# \?//'
     exit 0
 }
 
@@ -332,6 +344,114 @@ stage_distillation() {
     fi
 }
 
+stage_convert() {
+    check_weight "$WEIGHT_NAME" "$HIDDEN_SIZE" || return 1
+    local hf_dir="$PROJECT_DIR/out/minimind-hf"
+    log_info "转换权重 ${WEIGHT_NAME}_${HIDDEN_SIZE}.pth → HuggingFace 格式"
+    log_info "输出目录: $hf_dir"
+    if [ "$INSIDE_DOCKER" -eq 1 ]; then
+        run_cmd "python $PROJECT_DIR/scripts/convert_to_hf.py \
+            --save_dir $PROJECT_DIR/out \
+            --weight $WEIGHT_NAME \
+            --hidden_size $HIDDEN_SIZE \
+            --num_hidden_layers $NUM_HIDDEN_LAYERS \
+            --output_dir $hf_dir"
+    else
+        local docker_cmd
+        docker_cmd=$(run_docker \
+            "$PROJECT_DIR/model:/workspace/minimind/model" \
+            "$PROJECT_DIR/scripts:/workspace/minimind/scripts")
+        run_cmd "$docker_cmd python scripts/convert_to_hf.py \
+            --save_dir out \
+            --weight $WEIGHT_NAME \
+            --hidden_size $HIDDEN_SIZE \
+            --num_hidden_layers $NUM_HIDDEN_LAYERS \
+            --output_dir out/minimind-hf"
+    fi
+}
+
+stage_vllm() {
+    local hf_dir="$PROJECT_DIR/out/minimind-hf"
+    if [ ! -f "$hf_dir/config.json" ]; then
+        log_error "HuggingFace 模型不存在: $hf_dir/config.json"
+        log_error "请先运行 convert 阶段: bash scripts/run_all_npu.sh convert"
+        return 1
+    fi
+
+    # 停止已有容器
+    if docker ps -q --filter "name=$VLLM_CONTAINER_NAME" | grep -q .; then
+        log_info "停止已有 vLLM 容器: $VLLM_CONTAINER_NAME"
+        docker stop "$VLLM_CONTAINER_NAME" >/dev/null 2>&1 || true
+        sleep 2
+    fi
+
+    log_info "启动 vLLM 服务 (端口: $VLLM_PORT, 镜像: $VLLM_IMAGE)"
+    run_cmd docker run -d --rm \
+        --name "$VLLM_CONTAINER_NAME" \
+        --shm-size=1g \
+        --network=host \
+        --device /dev/davinci0 \
+        --device /dev/davinci_manager \
+        --device /dev/devmm_svm \
+        --device /dev/hisi_hdc \
+        -v /usr/local/dcmi:/usr/local/dcmi:ro \
+        -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro \
+        -v /usr/local/sbin/npu-smi:/usr/local/sbin/npu-smi:ro \
+        -v /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/:ro \
+        -v /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info:ro \
+        -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
+        -v "$hf_dir":/models/minimind:ro \
+        "$VLLM_IMAGE" \
+        vllm serve /models/minimind \
+            --host 0.0.0.0 \
+            --port "$VLLM_PORT" \
+            --dtype float16 \
+            --max-model-len "$MAX_MODEL_LEN"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        return 0
+    fi
+
+    # 等待服务就绪
+    log_info "等待 vLLM 服务启动..."
+    local max_wait=120
+    local elapsed=0
+    while [ $elapsed -lt $max_wait ]; do
+        if curl -s "http://localhost:$VLLM_PORT/health" >/dev/null 2>&1; then
+            log_info "vLLM 服务已就绪!"
+            log_info "API 地址: http://localhost:$VLLM_PORT/v1/chat/completions"
+            log_info "容器名称: $VLLM_CONTAINER_NAME"
+            log_info "停止服务: docker stop $VLLM_CONTAINER_NAME"
+
+            # 发送测试请求
+            log_info "发送测试请求..."
+            local response
+            response=$(curl -s "http://localhost:$VLLM_PORT/v1/chat/completions" \
+                -H "Content-Type: application/json" \
+                -d "{
+                    \"model\": \"/models/minimind\",
+                    \"messages\": [{\"role\": \"user\", \"content\": \"你好\"}],
+                    \"max_tokens\": 64
+                }" 2>&1)
+            local content
+            content=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null || echo "(解析失败)")
+            log_info "测试回复: $content"
+            return 0
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+        # 检查容器是否还在运行
+        if ! docker ps -q --filter "name=$VLLM_CONTAINER_NAME" | grep -q .; then
+            log_error "vLLM 容器已退出，查看日志:"
+            docker logs "$VLLM_CONTAINER_NAME" 2>&1 | tail -20
+            return 1
+        fi
+    done
+    log_error "vLLM 服务在 ${max_wait}秒 内未就绪"
+    docker logs "$VLLM_CONTAINER_NAME" 2>&1 | tail -20
+    return 1
+}
+
 stage_eval() {
     check_weight "full_sft" "$HIDDEN_SIZE" || return 1
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
@@ -378,6 +498,22 @@ while [ $# -gt 0 ]; do
             FORCE_BUILD=1
             shift
             ;;
+        --weight)
+            WEIGHT_NAME="$2"
+            shift 2
+            ;;
+        --vllm-image)
+            VLLM_IMAGE="$2"
+            shift 2
+            ;;
+        --vllm-port)
+            VLLM_PORT="$2"
+            shift 2
+            ;;
+        --max-model-len)
+            MAX_MODEL_LEN="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=1
             shift
@@ -416,16 +552,19 @@ expand_stages() {
             core)
                 expanded+=(download build pretrain full_sft eval)
                 ;;
+            serve)
+                expanded+=(convert vllm)
+                ;;
             rl)
                 expanded+=(ppo grpo spo)
                 ;;
-            download|build|tokenizer|pretrain|full_sft|lora|dpo|reason|ppo|grpo|spo|distillation|eval)
+            download|build|tokenizer|pretrain|full_sft|lora|dpo|reason|ppo|grpo|spo|distillation|eval|convert|vllm)
                 expanded+=("$stage")
                 ;;
             *)
                 log_error "未知阶段: $stage"
-                echo "可用阶段: download build tokenizer pretrain full_sft lora dpo reason ppo grpo spo distillation eval"
-                echo "预设组合: all core rl"
+                echo "可用阶段: download build tokenizer pretrain full_sft lora dpo reason ppo grpo spo distillation eval convert vllm"
+                echo "预设组合: all core serve rl"
                 exit 1
                 ;;
         esac
