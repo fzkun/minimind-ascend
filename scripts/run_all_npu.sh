@@ -211,11 +211,11 @@ stage_build() {
 stage_tokenizer() {
     check_data "pretrain_hq.jsonl" || return 1
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
-        run_cmd "cd $PROJECT_DIR/trainer && python train_tokenizer.py"
+        run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" tokenizer
     else
         local docker_cmd
         docker_cmd=$(run_docker)
-        run_cmd "$docker_cmd bash -c 'cd /workspace/minimind/trainer && python train_tokenizer.py'"
+        run_cmd "$docker_cmd bash scripts/run_train_npu.sh tokenizer"
     fi
 }
 
@@ -350,8 +350,12 @@ stage_distillation() {
 
 stage_convert() {
     check_weight "$WEIGHT_NAME" "$HIDDEN_SIZE" || return 1
-    local hf_dir="$PROJECT_DIR/out/minimind-hf"
-    log_info "转换权重 ${WEIGHT_NAME}_${HIDDEN_SIZE}.pth → HuggingFace 格式"
+    local moe_suffix=""
+    [ "$USE_MOE" -eq 1 ] && moe_suffix="-moe"
+    local hf_dir="$PROJECT_DIR/out/minimind${moe_suffix}-hf"
+    local moe_arg=""
+    [ "$USE_MOE" -eq 1 ] && moe_arg="--use_moe 1"
+    log_info "转换权重 ${WEIGHT_NAME}_${HIDDEN_SIZE}${moe_suffix//-/_}.pth → HuggingFace 格式"
     log_info "输出目录: $hf_dir"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd "python $PROJECT_DIR/scripts/convert_to_hf.py \
@@ -359,6 +363,7 @@ stage_convert() {
             --weight $WEIGHT_NAME \
             --hidden_size $HIDDEN_SIZE \
             --num_hidden_layers $NUM_HIDDEN_LAYERS \
+            $moe_arg \
             --output_dir $hf_dir"
     else
         local docker_cmd
@@ -370,28 +375,36 @@ stage_convert() {
             --weight $WEIGHT_NAME \
             --hidden_size $HIDDEN_SIZE \
             --num_hidden_layers $NUM_HIDDEN_LAYERS \
-            --output_dir out/minimind-hf"
+            $moe_arg \
+            --output_dir out/minimind${moe_suffix}-hf"
     fi
 }
 
 stage_vllm() {
-    local hf_dir="$PROJECT_DIR/out/minimind-hf"
+    local moe_suffix=""
+    [ "$USE_MOE" -eq 1 ] && moe_suffix="-moe"
+    local hf_dir="$PROJECT_DIR/out/minimind${moe_suffix}-hf"
+    local model_name="minimind${moe_suffix}"
+    local container_name="${VLLM_CONTAINER_NAME}${moe_suffix}"
+
     if [ ! -f "$hf_dir/config.json" ]; then
         log_error "HuggingFace 模型不存在: $hf_dir/config.json"
-        log_error "请先运行 convert 阶段: bash scripts/run_all_npu.sh convert"
+        log_error "请先运行 convert 阶段: bash scripts/run_all_npu.sh$([ "$USE_MOE" -eq 1 ] && echo ' --use-moe') convert"
         return 1
     fi
 
     # 停止已有容器
-    if docker ps -q --filter "name=$VLLM_CONTAINER_NAME" | grep -q .; then
-        log_info "停止已有 vLLM 容器: $VLLM_CONTAINER_NAME"
-        docker stop "$VLLM_CONTAINER_NAME" >/dev/null 2>&1 || true
+    if docker ps -q --filter "name=$container_name" | grep -q .; then
+        log_info "停止已有 vLLM 容器: $container_name"
+        docker stop "$container_name" >/dev/null 2>&1 || true
         sleep 2
     fi
+    # 清理已退出的同名容器
+    docker rm -f "$container_name" >/dev/null 2>&1 || true
 
-    log_info "启动 vLLM 服务 (端口: $VLLM_PORT, 镜像: $VLLM_IMAGE)"
+    log_info "启动 vLLM 服务 (模型: $model_name, 端口: $VLLM_PORT, 镜像: $VLLM_IMAGE)"
     run_cmd docker run -d --rm \
-        --name "$VLLM_CONTAINER_NAME" \
+        --name "$container_name" \
         --shm-size=1g \
         --network=host \
         --device /dev/davinci0 \
@@ -407,6 +420,7 @@ stage_vllm() {
         -v "$hf_dir":/models/minimind:ro \
         "$VLLM_IMAGE" \
         vllm serve /models/minimind \
+            --served-model-name "$model_name" \
             --host 0.0.0.0 \
             --port "$VLLM_PORT" \
             --dtype float16 \
@@ -418,14 +432,15 @@ stage_vllm() {
 
     # 等待服务就绪
     log_info "等待 vLLM 服务启动..."
-    local max_wait=120
+    local max_wait=150
     local elapsed=0
     while [ $elapsed -lt $max_wait ]; do
         if curl -s "http://localhost:$VLLM_PORT/health" >/dev/null 2>&1; then
             log_info "vLLM 服务已就绪!"
             log_info "API 地址: http://localhost:$VLLM_PORT/v1/chat/completions"
-            log_info "容器名称: $VLLM_CONTAINER_NAME"
-            log_info "停止服务: docker stop $VLLM_CONTAINER_NAME"
+            log_info "模型名称: $model_name"
+            log_info "容器名称: $container_name"
+            log_info "停止服务: docker stop $container_name"
 
             # 发送测试请求
             log_info "发送测试请求..."
@@ -433,7 +448,7 @@ stage_vllm() {
             response=$(curl -s "http://localhost:$VLLM_PORT/v1/chat/completions" \
                 -H "Content-Type: application/json" \
                 -d "{
-                    \"model\": \"/models/minimind\",
+                    \"model\": \"$model_name\",
                     \"messages\": [{\"role\": \"user\", \"content\": \"你好\"}],
                     \"max_tokens\": 64
                 }" 2>&1)
@@ -445,14 +460,14 @@ stage_vllm() {
         sleep 5
         elapsed=$((elapsed + 5))
         # 检查容器是否还在运行
-        if ! docker ps -q --filter "name=$VLLM_CONTAINER_NAME" | grep -q .; then
+        if ! docker ps -q --filter "name=$container_name" | grep -q .; then
             log_error "vLLM 容器已退出，查看日志:"
-            docker logs "$VLLM_CONTAINER_NAME" 2>&1 | tail -20
+            docker logs "$container_name" 2>&1 | tail -20
             return 1
         fi
     done
     log_error "vLLM 服务在 ${max_wait}秒 内未就绪"
-    docker logs "$VLLM_CONTAINER_NAME" 2>&1 | tail -20
+    docker logs "$container_name" 2>&1 | tail -20
     return 1
 }
 
