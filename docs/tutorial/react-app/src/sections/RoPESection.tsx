@@ -1,13 +1,167 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import Card from '../components/Card';
 import SourcePanel from '../components/SourcePanel';
 import { useTheme } from '../context/ThemeContext';
 import { useCanvas } from '../hooks/useCanvas';
 import { MM } from '../constants';
 
+const ROPE_STEPS = [
+  { name: '原始 Q/K 向量', desc: '从注意力投影得到 Q 和 K，每个头 64 维。这些向量还没有位置信息。', analogy: '拿到一份 64 格的空白卡片，还不知道是第几个位置的', color: '#64748b' },
+  { name: '两两配对', desc: '将 64 维拆成 32 组，每组 2 个相邻维度视为一个 2D 向量：(q₀,q₁), (q₂,q₃), ..., (q₆₂,q₆₃)。', analogy: '64 格卡片两两配对，变成 32 对"舞伴"', color: '#3b82f6' },
+  { name: '计算频率', desc: 'freq[i] = 1 / (base^(2i/d))，i=0 时频率最高（旋转最快），i=31 时频率最低（旋转最慢）。base=1000000。', analogy: '给 32 对舞伴分配不同的"旋转速度"，第 1 对转最快，最后 1 对转最慢', color: '#10b981' },
+  { name: '计算旋转角', desc: 'θᵢ = position × freq[i]。位置越大，角度越大。高频维度角度增长快，低频维度增长慢。', analogy: '座位号 × 旋转速度 = 实际要转多少度', color: '#f59e0b' },
+  { name: '旋转变换', desc: "q' = q·cos(θ) + rotate(q)·sin(θ)。每对 2D 向量按各自的角度做旋转矩阵变换，K 同理。", analogy: '每对舞伴按自己的角度原地旋转，Q 和 K 都转', color: '#8b5cf6' },
+  { name: '位置感知完成', desc: '旋转后：相同内容在不同位置→不同向量，Q·K 点积只取决于相对距离。V 不参与旋转，不需要位置信息。', analogy: '现在每张卡片都"刻上"了位置信息，相对距离自动编码在点积中', color: '#06b6d4' },
+];
+
 export default function RoPESection() {
   const { isDark } = useTheme();
   const [pos, setPos] = useState(0);
+
+  // RoPE step animation state
+  const [ropeStep, setRopeStep] = useState(-1);
+  const [ropePlaying, setRopePlaying] = useState(false);
+  const ropeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Auto-play rotation
+  const [ropeAutoPlaying, setRopeAutoPlaying] = useState(false);
+  const ropeAutoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (ropeTimerRef.current) clearInterval(ropeTimerRef.current);
+      if (ropeAutoTimerRef.current) clearInterval(ropeAutoTimerRef.current);
+    };
+  }, []);
+
+  const stopRope = useCallback(() => {
+    if (ropeTimerRef.current) { clearInterval(ropeTimerRef.current); ropeTimerRef.current = null; }
+    setRopePlaying(false);
+  }, []);
+
+  const playRope = useCallback(() => {
+    if (ropeTimerRef.current) { stopRope(); return; }
+    setRopePlaying(true);
+    ropeTimerRef.current = setInterval(() => {
+      setRopeStep(prev => {
+        if (prev < ROPE_STEPS.length - 1) return prev + 1;
+        stopRope();
+        return prev;
+      });
+    }, 1200);
+  }, [stopRope]);
+
+  const resetRope = useCallback(() => { stopRope(); setRopeStep(-1); }, [stopRope]);
+
+  const toggleRopeAuto = useCallback(() => {
+    if (ropeAutoTimerRef.current) {
+      clearInterval(ropeAutoTimerRef.current);
+      ropeAutoTimerRef.current = null;
+      setRopeAutoPlaying(false);
+      return;
+    }
+    setRopeAutoPlaying(true);
+    ropeAutoTimerRef.current = setInterval(() => {
+      setPos(prev => (prev >= 127 ? 0 : prev + 1));
+    }, 100);
+  }, []);
+
+  // RoPE flow SVG
+  const ropeFlowSvg = useMemo(() => {
+    const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = isDark ? '#94a3b8' : '#555';
+
+    const boxes = ROPE_STEPS.map((s, i) => ({
+      y: 10 + i * 46,
+      h: 34,
+      label: `${i}. ${s.name}`,
+      color: s.color,
+    }));
+
+    let html = `<defs><marker id="arrRope" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>`;
+
+    boxes.forEach((b, i) => {
+      const isActive = i === ropeStep;
+      const isDone = i < ropeStep;
+      const opacity = isActive ? 0.35 : isDone ? 0.2 : 0.06;
+      const strokeW = isActive ? 2.5 : 1.5;
+      const dash = !isActive && !isDone ? 'stroke-dasharray="4,2"' : '';
+
+      html += `<rect x="20" y="${b.y}" width="260" height="${b.h}" rx="6" fill="${b.color}" opacity="${opacity}" stroke="${b.color}" stroke-width="${strokeW}" ${dash} style="cursor:pointer" data-rstep="${i}"/>`;
+      html += `<text x="150" y="${b.y + b.h / 2 + 5}" text-anchor="middle" fill="${isActive ? fg : fg2}" font-size="${isActive ? 12 : 10.5}" ${isActive ? 'font-weight="bold"' : ''} style="pointer-events:none">${b.label}</text>`;
+
+      if (isActive) {
+        html += `<circle cx="10" cy="${b.y + b.h / 2}" r="5" fill="${b.color}"><animate attributeName="r" values="4;7;4" dur="1s" repeatCount="indefinite"/></circle>`;
+      }
+      if (isDone) {
+        html += `<text x="288" y="${b.y + b.h / 2 + 4}" fill="${b.color}" font-size="12">✓</text>`;
+      }
+      if (i < boxes.length - 1) {
+        html += `<line x1="150" y1="${b.y + b.h}" x2="150" y2="${boxes[i + 1].y}" stroke="${fg2}" stroke-width="1" marker-end="url(#arrRope)" opacity="0.4"/>`;
+      }
+    });
+
+    return html;
+  }, [isDark, ropeStep]);
+
+  // Step detail visualization for RoPE steps
+  const ropeStepDetailSvg = useMemo(() => {
+    if (ropeStep < 0) return '';
+    const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = isDark ? '#94a3b8' : '#555';
+    const accent = isDark ? '#818cf8' : '#4f46e5';
+    let html = '';
+
+    if (ropeStep === 1) {
+      // Pair visualization
+      const dims = ['q₀','q₁','q₂','q₃','q₄','q₅','...','q₆₂','q₆₃'];
+      dims.forEach((d, i) => {
+        const x = 10 + i * 30;
+        const isPair = i < 6 || i >= 7;
+        const pairIdx = i < 6 ? Math.floor(i / 2) : (i >= 7 ? 30 + Math.floor((i - 7) / 2) : -1);
+        const colors = [accent, '#10b981', '#f59e0b', '#8b5cf6'];
+        const color = pairIdx >= 0 ? colors[pairIdx % colors.length] : fg2;
+        html += `<rect x="${x}" y="5" width="26" height="22" rx="3" fill="${color}" opacity="0.2" stroke="${color}" stroke-width="1"/>`;
+        html += `<text x="${x + 13}" y="20" text-anchor="middle" fill="${fg}" font-size="8">${d}</text>`;
+      });
+      // Brackets for pairs
+      html += `<path d="M 11 30 L 11 35 L 63 35 L 63 30" fill="none" stroke="${accent}" stroke-width="1"/>`;
+      html += `<text x="37" y="46" text-anchor="middle" fill="${accent}" font-size="8">pair 0</text>`;
+      html += `<path d="M 71 30 L 71 35 L 123 35 L 123 30" fill="none" stroke="#10b981" stroke-width="1"/>`;
+      html += `<text x="97" y="46" text-anchor="middle" fill="#10b981" font-size="8">pair 1</text>`;
+      html += `<path d="M 131 30 L 131 35 L 183 35 L 183 30" fill="none" stroke="#f59e0b" stroke-width="1"/>`;
+      html += `<text x="157" y="46" text-anchor="middle" fill="#f59e0b" font-size="8">pair 2</text>`;
+    } else if (ropeStep === 2) {
+      // Frequency values
+      const freqs = [0, 4, 8, 16, 24, 31].map(i => ({
+        i,
+        freq: 1.0 / Math.pow(1000000, (2 * i) / 64),
+      }));
+      html += `<text x="5" y="14" fill="${fg}" font-size="9" font-weight="bold">freq[i] = 1/(1000000^(2i/64))</text>`;
+      freqs.forEach((f, idx) => {
+        const y = 28 + idx * 18;
+        const barW = Math.max(2, Math.min(180, f.freq * 180));
+        html += `<text x="5" y="${y + 10}" fill="${fg2}" font-size="8">i=${f.i}:</text>`;
+        html += `<rect x="40" y="${y}" width="${barW}" height="12" rx="2" fill="${accent}" opacity="0.6"/>`;
+        html += `<text x="${45 + barW}" y="${y + 10}" fill="${fg}" font-size="8">${f.freq.toExponential(1)}</text>`;
+      });
+    } else if (ropeStep >= 3 && ropeStep <= 4) {
+      // cos/sin values
+      const examplePos = 10;
+      html += `<text x="5" y="14" fill="${fg}" font-size="9" font-weight="bold">position = ${examplePos} 时的旋转角</text>`;
+      [0, 8, 16, 31].forEach((i, idx) => {
+        const freq = 1.0 / Math.pow(1000000, (2 * i) / 64);
+        const theta = examplePos * freq;
+        const y = 28 + idx * 28;
+        html += `<text x="5" y="${y + 10}" fill="${fg2}" font-size="8">pair ${i}:</text>`;
+        html += `<text x="50" y="${y + 10}" fill="${fg}" font-size="8">θ=${theta.toFixed(4)}</text>`;
+        html += `<text x="120" y="${y + 10}" fill="#10b981" font-size="8">cos=${Math.cos(theta).toFixed(3)}</text>`;
+        html += `<text x="190" y="${y + 10}" fill="#f59e0b" font-size="8">sin=${Math.sin(theta).toFixed(3)}</text>`;
+      });
+    }
+
+    return html;
+  }, [isDark, ropeStep]);
 
   // RoPE rotation canvas 1 (high freq, channel 0)
   const canvas1Ref = useCanvas(
@@ -172,6 +326,75 @@ export default function RoPESection() {
         </small>
       </p>
 
+      <Card title="RoPE 如何工作 — 逐步动画">
+        <p style={{ marginBottom: 10, fontSize: '0.9rem', color: 'var(--fg2)' }}>
+          从原始向量到位置感知，6 步理解旋转位置编码的完整过程。
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={() => setRopeStep(prev => Math.max(prev - 1, 0))}>◀ 上一步</button>
+          <button className="btn primary" onClick={() => setRopeStep(prev => Math.min(prev + 1, ROPE_STEPS.length - 1))}>下一步 ▶</button>
+          <button className="btn" onClick={playRope}>{ropePlaying ? '⏸ 暂停' : '▶ 自动播放'}</button>
+          <button className="btn" onClick={resetRope}>重置</button>
+        </div>
+        <div className="step-indicator">
+          {ROPE_STEPS.map((s, i) => (
+            <div
+              key={i}
+              className={`step-dot${i === ropeStep ? ' active' : ''}${i < ropeStep ? ' done' : ''}`}
+              onClick={() => setRopeStep(i)}
+              title={s.name}
+            >
+              {i}
+            </div>
+          ))}
+        </div>
+        <div className="viz-grid">
+          <div>
+            <svg
+              width="100%"
+              height={290}
+              viewBox="0 0 310 290"
+              onClick={(e) => {
+                const t = (e.target as SVGElement).closest('rect[data-rstep]');
+                if (t) setRopeStep(parseInt(t.getAttribute('data-rstep')!));
+              }}
+              dangerouslySetInnerHTML={{ __html: ropeFlowSvg }}
+            />
+          </div>
+          <div>
+            {ropeStep >= 0 ? (() => {
+              const cur = ROPE_STEPS[ropeStep];
+              return (
+                <>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: cur.color, marginBottom: 6 }}>
+                    {ropeStep}. {cur.name}
+                  </div>
+                  <div style={{
+                    padding: '10px 14px',
+                    background: isDark ? '#1e293b' : '#fffbeb',
+                    border: `2px solid ${cur.color}`,
+                    borderRadius: 'var(--radius)',
+                    marginBottom: 10,
+                    fontSize: '0.92rem',
+                  }}>
+                    <strong>大白话：</strong>{cur.analogy}
+                  </div>
+                  <div className="label">说明</div>
+                  <p style={{ fontSize: '0.88rem', color: 'var(--fg2)', marginBottom: 10 }}>{cur.desc}</p>
+                  {ropeStepDetailSvg && (
+                    <svg width="100%" height={ropeStep === 1 ? 55 : 140} viewBox={`0 0 280 ${ropeStep === 1 ? 55 : 140}`} dangerouslySetInnerHTML={{ __html: ropeStepDetailSvg }} />
+                  )}
+                </>
+              );
+            })() : (
+              <div style={{ color: 'var(--fg3)', fontSize: '0.9rem', padding: 20 }}>
+                点击「下一步」或左侧流程图开始演示
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
       <Card title="旋转向量动画">
         <p style={{ marginBottom: 10, fontSize: '0.9rem', color: 'var(--fg2)' }}>
           RoPE 将 Q/K 向量的 64 个维度两两配对成 32 组，每组视为一个 2D 向量并旋转 θ 角度。
@@ -192,8 +415,11 @@ export default function RoPESection() {
           </div>
         </div>
         <div style={{ marginTop: 10 }}>
-          <div className="label">
+          <div className="label" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             位置 position = <span className="value">{pos}</span>
+            <button className="btn" style={{ fontSize: '0.8rem', padding: '2px 10px' }} onClick={toggleRopeAuto}>
+              {ropeAutoPlaying ? '⏸ 停止' : '▶ 自动播放'}
+            </button>
           </div>
           <input
             type="range"

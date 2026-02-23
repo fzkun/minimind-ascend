@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import Card from '../components/Card';
 import SourcePanel from '../components/SourcePanel';
 import { useTheme } from '../context/ThemeContext';
@@ -6,10 +6,143 @@ import { useCanvas } from '../hooks/useCanvas';
 import { MM } from '../constants';
 import { softmax, mulberry32, tokenColor } from '../utils';
 
+const ATTN_STEPS = [
+  { name: '输入向量', shape: '[1, 4, 512]', desc: '4 个 token 的隐藏向量进入注意力层，每个 token 是 512 维', analogy: '4 位同学拿着各自的 512 维简历走进面试室', color: '#64748b' },
+  { name: 'Q/K/V 投影', shape: 'Q:[1,4,8,64] K/V:[1,4,2,64]', desc: '每个 token 通过三个线性层分别生成 Query、Key、Value 向量。Q 有 8 个头，K/V 只有 2 个头（GQA）', analogy: '每人填写三种卡片："我想问什么"(Q)、"我的标签"(K)、"我的内容"(V)', color: '#3b82f6' },
+  { name: 'RoPE 旋转', shape: 'Q/K 形状不变', desc: '对 Q 和 K 施加旋转位置编码，让向量携带位置信息。V 不需要位置信息', analogy: '给 Q 和 K 卡片盖上"座位号"章，V 不需要', color: '#10b981' },
+  { name: 'GQA repeat_kv', shape: 'K/V → [1,4,8,64]', desc: '2 个 KV 头各复制 4 次，扩展到 8 个，对齐 8 个 Q 头', analogy: '2 份 KV 卡片各复印 4 份，让 8 个 Q 面试官每人都有一份', color: '#f59e0b' },
+  { name: 'Q·K^T 打分', shape: '[1, 8, 4, 4]', desc: '每个 Q 头与对应的 K 做点积，得到 4×4 的注意力原始分数矩阵', analogy: '每个面试官给所有同学打"相关度"分数', color: '#8b5cf6' },
+  { name: '因果掩码', shape: '[1, 8, 4, 4]', desc: '将上三角（未来 token 位置）设为 -∞，确保自回归：每个 token 只能看到自身和之前的 token', analogy: '用挡板遮住后面的同学，只能看到前面的', color: '#ef4444' },
+  { name: 'Softmax 归一化', shape: '[1, 8, 4, 4]', desc: '对每行做 softmax，将原始分数转化为概率分布（每行和为 1）', analogy: '把分数变成"关注度百分比"，总和 100%', color: '#06b6d4' },
+  { name: '加权求和 V', shape: '[1, 8, 4, 64]', desc: '用注意力权重对 V 加权求和，每个 token 获得上下文融合的信息', analogy: '按关注度百分比，从每人的内容卡片中提取信息', color: '#f97316' },
+  { name: '拼接 + O_proj', shape: '[1, 4, 512]', desc: '将 8 个头的 64 维结果拼接为 512 维，再通过输出投影回原始维度', analogy: '8 个面试官的笔记合并成一份总结报告', color: '#818cf8' },
+];
+
 export default function AttentionSection() {
   const { isDark } = useTheme();
   const [temp, setTemp] = useState(1);
+
+  // Attention step animation state
+  const [attnStep, setAttnStep] = useState(-1);
+  const [attnPlaying, setAttnPlaying] = useState(false);
+  const attnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (attnTimerRef.current) clearInterval(attnTimerRef.current);
+    };
+  }, []);
+
+  const stopAttn = useCallback(() => {
+    if (attnTimerRef.current) { clearInterval(attnTimerRef.current); attnTimerRef.current = null; }
+    setAttnPlaying(false);
+  }, []);
+
+  const playAttn = useCallback(() => {
+    if (attnTimerRef.current) { stopAttn(); return; }
+    setAttnPlaying(true);
+    attnTimerRef.current = setInterval(() => {
+      setAttnStep(prev => {
+        if (prev < ATTN_STEPS.length - 1) return prev + 1;
+        stopAttn();
+        return prev;
+      });
+    }, 1200);
+  }, [stopAttn]);
+
+  const resetAttn = useCallback(() => { stopAttn(); setAttnStep(-1); }, [stopAttn]);
+
   const tokens = ['我', '喜', '欢', '你'];
+
+  const attnFlowSvg = useMemo(() => {
+    const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = isDark ? '#94a3b8' : '#555';
+
+    const boxes = ATTN_STEPS.map((s, i) => ({
+      y: 10 + i * 46,
+      h: 34,
+      label: `${i}. ${s.name}`,
+      color: s.color,
+    }));
+
+    let html = `<defs><marker id="arrAttn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>`;
+
+    boxes.forEach((b, i) => {
+      const isActive = i === attnStep;
+      const isDone = i < attnStep;
+      const opacity = isActive ? 0.35 : isDone ? 0.2 : 0.06;
+      const strokeW = isActive ? 2.5 : 1.5;
+      const dash = !isActive && !isDone ? 'stroke-dasharray="4,2"' : '';
+
+      html += `<rect x="20" y="${b.y}" width="260" height="${b.h}" rx="6" fill="${b.color}" opacity="${opacity}" stroke="${b.color}" stroke-width="${strokeW}" ${dash} style="cursor:pointer" data-astep="${i}"/>`;
+      html += `<text x="150" y="${b.y + b.h / 2 + 5}" text-anchor="middle" fill="${isActive ? fg : fg2}" font-size="${isActive ? 12 : 10.5}" ${isActive ? 'font-weight="bold"' : ''} style="pointer-events:none">${b.label}</text>`;
+
+      if (isActive) {
+        html += `<circle cx="10" cy="${b.y + b.h / 2}" r="5" fill="${b.color}"><animate attributeName="r" values="4;7;4" dur="1s" repeatCount="indefinite"/></circle>`;
+      }
+      if (isDone) {
+        html += `<text x="288" y="${b.y + b.h / 2 + 4}" fill="${b.color}" font-size="12">✓</text>`;
+      }
+      if (i < boxes.length - 1) {
+        html += `<line x1="150" y1="${b.y + b.h}" x2="150" y2="${boxes[i + 1].y}" stroke="${fg2}" stroke-width="1" marker-end="url(#arrAttn)" opacity="0.4"/>`;
+      }
+    });
+
+    return html;
+  }, [isDark, attnStep]);
+
+  // Attention matrix mini-visualization for steps 4-6
+  const attnMatrixSvg = useMemo(() => {
+    if (attnStep < 4 || attnStep > 6) return '';
+    const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = isDark ? '#94a3b8' : '#555';
+    const tokens = ['我', '喜', '欢', '你'];
+    const cellSize = 36;
+    const pad = 30;
+    let html = '';
+    html += `<text x="${pad + cellSize * 2}" y="14" text-anchor="middle" fill="${fg}" font-size="10">4×4 注意力矩阵 (模拟)</text>`;
+    for (let j = 0; j < 4; j++) {
+      html += `<text x="${pad + j * cellSize + cellSize / 2}" y="${pad - 4}" text-anchor="middle" fill="${fg2}" font-size="9">${tokens[j]}</text>`;
+      html += `<text x="${pad - 6}" y="${pad + j * cellSize + cellSize / 2 + 4}" text-anchor="end" fill="${fg2}" font-size="9">${tokens[j]}</text>`;
+    }
+    const rawScores = [[1.2, 0.3, -0.5, 0.1], [0.8, 1.5, 0.2, -0.3], [0.4, 0.9, 1.8, 0.6], [0.3, 0.5, 1.1, 2.0]];
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) {
+        const x = pad + j * cellSize;
+        const y = pad + i * cellSize;
+        if (attnStep === 4) {
+          // Raw scores
+          const val = j <= i ? rawScores[i][j] : 0;
+          const intensity = j <= i ? Math.max(0, Math.min(1, (val + 1) / 3)) : 0.1;
+          const color = isDark ? `rgba(129,140,248,${intensity})` : `rgba(79,70,229,${intensity})`;
+          html += `<rect x="${x}" y="${y}" width="${cellSize - 2}" height="${cellSize - 2}" rx="3" fill="${color}"/>`;
+          html += `<text x="${x + cellSize / 2 - 1}" y="${y + cellSize / 2 + 3}" text-anchor="middle" fill="${isDark ? '#e2e8f0' : '#333'}" font-size="9">${j <= i ? val.toFixed(1) : '—'}</text>`;
+        } else if (attnStep === 5) {
+          // After causal mask
+          const val = j <= i ? rawScores[i][j] : -Infinity;
+          const masked = j > i;
+          const bgColor = masked ? (isDark ? '#334155' : '#e5e7eb') : (isDark ? `rgba(129,140,248,${Math.max(0.1, (rawScores[i][j] + 1) / 3)})` : `rgba(79,70,229,${Math.max(0.1, (rawScores[i][j] + 1) / 3)})`);
+          html += `<rect x="${x}" y="${y}" width="${cellSize - 2}" height="${cellSize - 2}" rx="3" fill="${bgColor}"/>`;
+          html += `<text x="${x + cellSize / 2 - 1}" y="${y + cellSize / 2 + 3}" text-anchor="middle" fill="${masked ? (isDark ? '#ef4444' : '#dc2626') : (isDark ? '#e2e8f0' : '#333')}" font-size="${masked ? 10 : 9}" font-weight="${masked ? 'bold' : 'normal'}">${masked ? '-∞' : val.toFixed(1)}</text>`;
+        } else if (attnStep === 6) {
+          // After softmax
+          const masked = j > i;
+          // Simple softmax simulation
+          const rowVals = rawScores[i].slice(0, i + 1);
+          const maxV = Math.max(...rowVals);
+          const exps = rowVals.map(v => Math.exp(v - maxV));
+          const sumExp = exps.reduce((a, b) => a + b, 0);
+          const probs = exps.map(e => e / sumExp);
+          const prob = masked ? 0 : probs[j];
+          const intensity = prob;
+          const bgColor = masked ? (isDark ? '#1e293b' : '#f0f0f0') : (isDark ? `rgba(6,182,212,${Math.max(0.1, intensity)})` : `rgba(6,182,212,${Math.max(0.1, intensity)})`);
+          html += `<rect x="${x}" y="${y}" width="${cellSize - 2}" height="${cellSize - 2}" rx="3" fill="${bgColor}"/>`;
+          html += `<text x="${x + cellSize / 2 - 1}" y="${y + cellSize / 2 + 3}" text-anchor="middle" fill="${masked ? (isDark ? '#475569' : '#ccc') : (isDark ? '#e2e8f0' : '#333')}" font-size="9">${masked ? '0' : prob.toFixed(2)}</text>`;
+        }
+      }
+    }
+    return html;
+  }, [isDark, attnStep]);
 
   // QKV SVG
   const qkvSvg = useMemo(() => {
@@ -173,6 +306,80 @@ export default function AttentionSection() {
           关联源码：<code>model/model_minimind.py:150</code> <code>class Attention</code> | <code>:169</code> <code>def forward</code>
         </small>
       </p>
+
+      <Card title="注意力计算逐步动画">
+        <p style={{ marginBottom: 10, fontSize: '0.9rem', color: 'var(--fg2)' }}>
+          从输入到输出，完整演示注意力机制的 9 个计算步骤。点击「下一步」逐步推进，或点击「自动播放」自动演示。
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={() => setAttnStep(prev => Math.max(prev - 1, 0))}>◀ 上一步</button>
+          <button className="btn primary" onClick={() => setAttnStep(prev => Math.min(prev + 1, ATTN_STEPS.length - 1))}>下一步 ▶</button>
+          <button className="btn" onClick={playAttn}>{attnPlaying ? '⏸ 暂停' : '▶ 自动播放'}</button>
+          <button className="btn" onClick={resetAttn}>重置</button>
+        </div>
+        <div className="step-indicator">
+          {ATTN_STEPS.map((s, i) => (
+            <div
+              key={i}
+              className={`step-dot${i === attnStep ? ' active' : ''}${i < attnStep ? ' done' : ''}`}
+              onClick={() => setAttnStep(i)}
+              title={s.name}
+            >
+              {i}
+            </div>
+          ))}
+        </div>
+        <div className="viz-grid">
+          <div>
+            <svg
+              width="100%"
+              height={430}
+              viewBox="0 0 310 430"
+              onClick={(e) => {
+                const t = (e.target as SVGElement).closest('rect[data-astep]');
+                if (t) setAttnStep(parseInt(t.getAttribute('data-astep')!));
+              }}
+              dangerouslySetInnerHTML={{ __html: attnFlowSvg }}
+            />
+          </div>
+          <div>
+            {attnStep >= 0 ? (() => {
+              const cur = ATTN_STEPS[attnStep];
+              return (
+                <>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: cur.color, marginBottom: 6 }}>
+                    {attnStep}. {cur.name}
+                  </div>
+                  <div style={{
+                    padding: '10px 14px',
+                    background: isDark ? '#1e293b' : '#fffbeb',
+                    border: `2px solid ${cur.color}`,
+                    borderRadius: 'var(--radius)',
+                    marginBottom: 10,
+                    fontSize: '0.92rem',
+                  }}>
+                    <strong>大白话：</strong>{cur.analogy}
+                  </div>
+                  <div className="label">Shape</div>
+                  <div className="shape-badge" style={{ marginBottom: 10, borderColor: cur.color, color: cur.color }}>{cur.shape}</div>
+                  <div className="label">说明</div>
+                  <p style={{ fontSize: '0.88rem', color: 'var(--fg2)', marginBottom: 10 }}>{cur.desc}</p>
+                  {attnStep >= 4 && attnStep <= 6 && (
+                    <div>
+                      <div className="label" style={{ marginTop: 8 }}>{attnStep === 4 ? '原始分数矩阵' : attnStep === 5 ? '因果掩码后' : 'Softmax 后（概率）'}</div>
+                      <svg width={180} height={180} viewBox="0 0 180 180" dangerouslySetInnerHTML={{ __html: attnMatrixSvg }} />
+                    </div>
+                  )}
+                </>
+              );
+            })() : (
+              <div style={{ color: 'var(--fg3)', fontSize: '0.9rem', padding: 20 }}>
+                点击「下一步」或左侧流程图开始演示
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <Card title="Q / K / V 计算与 GQA 分组">
         <p style={{ marginBottom: 10, fontSize: '0.9rem', color: 'var(--fg2)' }}>

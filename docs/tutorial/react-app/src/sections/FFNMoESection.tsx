@@ -32,6 +32,15 @@ function computeRouting(): RoutingResult {
   return { gates, assignments };
 }
 
+const SWIGLU_STEPS = [
+  { name: '输入 x', shape: '[512]', desc: '一个 token 的 512 维隐藏向量进入前馈网络', analogy: '一份 512 格的信息表进入加工车间', color: '#64748b' },
+  { name: 'gate_proj(x)', shape: '[1408]', desc: '门控分支：通过线性层将 512 维扩展到 1408 维，生成门控信号', analogy: '门卫检查：把 512 格扩展成 1408 格的"通行证"', color: '#3b82f6' },
+  { name: 'SiLU(gate)', shape: '[1408]', desc: 'SiLU 激活函数：SiLU(x)=x·σ(x)，平滑地决定每个特征的放行程度（0~∞）', analogy: '门卫盖章：每格标注"放行/屏蔽"程度', color: '#f59e0b' },
+  { name: 'up_proj(x)', shape: '[1408]', desc: '候选分支：另一个线性层也将 512 维扩展到 1408 维，生成候选特征', analogy: '加工员独立制作一份 1408 格的"候选产品"', color: '#10b981' },
+  { name: 'SiLU(gate) ⊙ up', shape: '[1408]', desc: '逐元素相乘：门控值 × 候选值，选择性地保留有用的特征', analogy: '门卫和加工员对账：通行证 × 候选产品 = 最终放行的信息', color: '#8b5cf6' },
+  { name: 'down_proj → output', shape: '[512]', desc: '通过线性层将 1408 维压缩回 512 维，输出与输入同维度', analogy: '把 1408 格精选信息压缩回 512 格，送出车间', color: '#818cf8' },
+];
+
 export default function FFNMoESection() {
   const { isDark } = useTheme();
   const [routingResult, setRoutingResult] = useState<RoutingResult | null>(null);
@@ -71,6 +80,143 @@ export default function FFNMoESection() {
     setRoutingResult(null);
     setMoeProgress(0);
   }, []);
+
+  // SwiGLU step animation state
+  const [ffnStep, setFfnStep] = useState(-1);
+  const [ffnPlaying, setFfnPlaying] = useState(false);
+  const ffnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (ffnTimerRef.current) clearInterval(ffnTimerRef.current);
+    };
+  }, []);
+
+  const stopFfn = useCallback(() => {
+    if (ffnTimerRef.current) { clearInterval(ffnTimerRef.current); ffnTimerRef.current = null; }
+    setFfnPlaying(false);
+  }, []);
+
+  const playFfn = useCallback(() => {
+    if (ffnTimerRef.current) { stopFfn(); return; }
+    setFfnPlaying(true);
+    ffnTimerRef.current = setInterval(() => {
+      setFfnStep(prev => {
+        if (prev < SWIGLU_STEPS.length - 1) return prev + 1;
+        stopFfn();
+        return prev;
+      });
+    }, 1200);
+  }, [stopFfn]);
+
+  const resetFfn = useCallback(() => { stopFfn(); setFfnStep(-1); }, [stopFfn]);
+
+  const ffnFlowSvg = useMemo(() => {
+    const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = isDark ? '#94a3b8' : '#555';
+
+    const boxes = SWIGLU_STEPS.map((s, i) => ({
+      y: 10 + i * 52,
+      h: 38,
+      label: `${i}. ${s.name}`,
+      color: s.color,
+    }));
+
+    let html = `<defs><marker id="arrFfn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>`;
+
+    boxes.forEach((b, i) => {
+      const isActive = i === ffnStep;
+      const isDone = i < ffnStep;
+      const opacity = isActive ? 0.35 : isDone ? 0.2 : 0.06;
+      const strokeW = isActive ? 2.5 : 1.5;
+      const dash = !isActive && !isDone ? 'stroke-dasharray="4,2"' : '';
+
+      html += `<rect x="20" y="${b.y}" width="260" height="${b.h}" rx="6" fill="${b.color}" opacity="${opacity}" stroke="${b.color}" stroke-width="${strokeW}" ${dash} style="cursor:pointer" data-fstep="${i}"/>`;
+      html += `<text x="150" y="${b.y + b.h / 2 + 5}" text-anchor="middle" fill="${isActive ? fg : fg2}" font-size="${isActive ? 12 : 10.5}" ${isActive ? 'font-weight="bold"' : ''} style="pointer-events:none">${b.label}</text>`;
+
+      if (isActive) {
+        html += `<circle cx="10" cy="${b.y + b.h / 2}" r="5" fill="${b.color}"><animate attributeName="r" values="4;7;4" dur="1s" repeatCount="indefinite"/></circle>`;
+      }
+      if (isDone) {
+        html += `<text x="288" y="${b.y + b.h / 2 + 4}" fill="${b.color}" font-size="12">✓</text>`;
+      }
+      if (i < boxes.length - 1) {
+        // Special: step 0 forks to step 1 and step 3, step 2 and step 3 merge into step 4
+        if (i === 0) {
+          html += `<line x1="120" y1="${b.y + b.h}" x2="120" y2="${boxes[1].y}" stroke="${fg2}" stroke-width="1" marker-end="url(#arrFfn)" opacity="0.4"/>`;
+          html += `<line x1="180" y1="${b.y + b.h}" x2="180" y2="${boxes[1].y}" stroke="${fg2}" stroke-width="1" opacity="0.15" stroke-dasharray="3,2"/>`;
+        } else if (i === 2) {
+          html += `<line x1="150" y1="${b.y + b.h}" x2="150" y2="${boxes[i + 1].y}" stroke="${fg2}" stroke-width="1" opacity="0.15" stroke-dasharray="3,2"/>`;
+        } else {
+          html += `<line x1="150" y1="${b.y + b.h}" x2="150" y2="${boxes[i + 1].y}" stroke="${fg2}" stroke-width="1" marker-end="url(#arrFfn)" opacity="0.4"/>`;
+        }
+      }
+      // Fork line from step 0 to step 3
+      if (i === 0) {
+        html += `<path d="M 180 ${b.y + b.h} L 270 ${b.y + b.h + 10} L 270 ${boxes[3].y - 5} L 180 ${boxes[3].y}" fill="none" stroke="${fg2}" stroke-width="1" marker-end="url(#arrFfn)" opacity="0.4" stroke-dasharray="4,2"/>`;
+        html += `<text x="278" y="${(b.y + b.h + boxes[3].y) / 2 + 5}" fill="${fg2}" font-size="8" opacity="0.6">并行</text>`;
+      }
+      // Merge indicator at step 4
+      if (i === 3) {
+        html += `<path d="M 120 ${boxes[2].y + boxes[2].h} L 100 ${boxes[2].y + boxes[2].h + 8} L 100 ${boxes[4].y - 5} L 120 ${boxes[4].y}" fill="none" stroke="${fg2}" stroke-width="1" marker-end="url(#arrFfn)" opacity="0.4"/>`;
+      }
+    });
+
+    return html;
+  }, [isDark, ffnStep]);
+
+  // Step detail visualization for FFN steps
+  const ffnStepDetailSvg = useMemo(() => {
+    if (ffnStep < 0) return '';
+    const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = isDark ? '#94a3b8' : '#555';
+    const accent = isDark ? '#818cf8' : '#4f46e5';
+
+    let html = '';
+    const dims = [512, 1408, 1408, 1408, 1408, 512];
+    const dim = dims[ffnStep];
+    const maxDim = 1408;
+    const barW = Math.max(40, (dim / maxDim) * 220);
+
+    html += `<text x="5" y="14" fill="${fg}" font-size="9" font-weight="bold">维度变化</text>`;
+    html += `<rect x="5" y="22" width="${barW}" height="18" rx="3" fill="${SWIGLU_STEPS[ffnStep].color}" opacity="0.4"/>`;
+    html += `<text x="${10 + barW}" y="35" fill="${fg}" font-size="9">${dim} 维</text>`;
+
+    if (ffnStep === 2) {
+      // SiLU visualization
+      html += `<text x="5" y="60" fill="${fg}" font-size="9" font-weight="bold">SiLU 激活示例（8 个采样值）</text>`;
+      const sampleInputs = [-2, -1, -0.5, 0, 0.5, 1, 2, 3];
+      const siluFn = (x: number) => x / (1 + Math.exp(-x));
+      sampleInputs.forEach((x, i) => {
+        const y = siluFn(x);
+        const barH = Math.max(1, Math.abs(y) * 18);
+        const barX = 10 + i * 30;
+        const baseY = 100;
+        html += `<rect x="${barX}" y="${y >= 0 ? baseY - barH : baseY}" width="22" height="${barH}" rx="2" fill="${y >= 0 ? '#10b981' : '#ef4444'}" opacity="0.6"/>`;
+        html += `<text x="${barX + 11}" y="118" text-anchor="middle" fill="${fg2}" font-size="7">${x}</text>`;
+        html += `<text x="${barX + 11}" y="${y >= 0 ? baseY - barH - 3 : baseY + barH + 9}" text-anchor="middle" fill="${fg}" font-size="7">${y.toFixed(1)}</text>`;
+      });
+      html += `<line x1="5" y1="100" x2="250" y2="100" stroke="${fg2}" stroke-width="0.5" stroke-dasharray="2,2"/>`;
+    }
+
+    if (ffnStep === 4) {
+      // Element-wise multiply visualization
+      html += `<text x="5" y="60" fill="${fg}" font-size="9" font-weight="bold">逐元素相乘（门控选择）</text>`;
+      const gateVals = [0.8, 0.1, 0.9, 0.0, 0.6, 0.3];
+      const upVals = [1.2, 0.5, -0.8, 1.5, 0.9, -0.3];
+      gateVals.forEach((g, i) => {
+        const result = g * upVals[i];
+        const barX = 5 + i * 42;
+        html += `<text x="${barX + 16}" y="76" text-anchor="middle" fill="#f59e0b" font-size="7">${g.toFixed(1)}</text>`;
+        html += `<text x="${barX + 16}" y="86" text-anchor="middle" fill="${accent}" font-size="8">×</text>`;
+        html += `<text x="${barX + 16}" y="96" text-anchor="middle" fill="#10b981" font-size="7">${upVals[i].toFixed(1)}</text>`;
+        html += `<line x1="${barX + 2}" y1="99" x2="${barX + 30}" y2="99" stroke="${fg2}" stroke-width="0.5"/>`;
+        html += `<text x="${barX + 16}" y="110" text-anchor="middle" fill="${fg}" font-size="7" font-weight="bold">${result.toFixed(2)}</text>`;
+      });
+    }
+
+    return html;
+  }, [isDark, ffnStep]);
 
   // SwiGLU SVG
   const swigluSvg = useMemo(() => {
@@ -319,6 +465,77 @@ export default function FFNMoESection() {
           关联源码：<code>model/model_minimind.py:216</code> <code>class FeedForward</code> | <code>:232</code> <code>class MoEGate</code> | <code>:288</code> <code>class MOEFeedForward</code>
         </small>
       </p>
+
+      <Card title="SwiGLU 逐步计算动画">
+        <p style={{ marginBottom: 10, fontSize: '0.9rem', color: 'var(--fg2)' }}>
+          一步步演示 SwiGLU 前馈网络如何处理一个 token 的隐藏向量：门控分支 × 候选分支 → 压缩输出。
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={() => setFfnStep(prev => Math.max(prev - 1, 0))}>◀ 上一步</button>
+          <button className="btn primary" onClick={() => setFfnStep(prev => Math.min(prev + 1, SWIGLU_STEPS.length - 1))}>下一步 ▶</button>
+          <button className="btn" onClick={playFfn}>{ffnPlaying ? '⏸ 暂停' : '▶ 自动播放'}</button>
+          <button className="btn" onClick={resetFfn}>重置</button>
+        </div>
+        <div className="step-indicator">
+          {SWIGLU_STEPS.map((s, i) => (
+            <div
+              key={i}
+              className={`step-dot${i === ffnStep ? ' active' : ''}${i < ffnStep ? ' done' : ''}`}
+              onClick={() => setFfnStep(i)}
+              title={s.name}
+            >
+              {i}
+            </div>
+          ))}
+        </div>
+        <div className="viz-grid">
+          <div>
+            <svg
+              width="100%"
+              height={330}
+              viewBox="0 0 310 330"
+              onClick={(e) => {
+                const t = (e.target as SVGElement).closest('rect[data-fstep]');
+                if (t) setFfnStep(parseInt(t.getAttribute('data-fstep')!));
+              }}
+              dangerouslySetInnerHTML={{ __html: ffnFlowSvg }}
+            />
+          </div>
+          <div>
+            {ffnStep >= 0 ? (() => {
+              const cur = SWIGLU_STEPS[ffnStep];
+              return (
+                <>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: cur.color, marginBottom: 6 }}>
+                    {ffnStep}. {cur.name}
+                  </div>
+                  <div style={{
+                    padding: '10px 14px',
+                    background: isDark ? '#1e293b' : '#fffbeb',
+                    border: `2px solid ${cur.color}`,
+                    borderRadius: 'var(--radius)',
+                    marginBottom: 10,
+                    fontSize: '0.92rem',
+                  }}>
+                    <strong>大白话：</strong>{cur.analogy}
+                  </div>
+                  <div className="label">Shape</div>
+                  <div className="shape-badge" style={{ marginBottom: 10, borderColor: cur.color, color: cur.color }}>{cur.shape}</div>
+                  <div className="label">说明</div>
+                  <p style={{ fontSize: '0.88rem', color: 'var(--fg2)', marginBottom: 10 }}>{cur.desc}</p>
+                  {ffnStepDetailSvg && (
+                    <svg width="100%" height={ffnStep === 2 || ffnStep === 4 ? 130 : 50} viewBox={`0 0 260 ${ffnStep === 2 || ffnStep === 4 ? 130 : 50}`} dangerouslySetInnerHTML={{ __html: ffnStepDetailSvg }} />
+                  )}
+                </>
+              );
+            })() : (
+              <div style={{ color: 'var(--fg3)', fontSize: '0.9rem', padding: 20 }}>
+                点击「下一步」或左侧流程图开始演示
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <Card title="SwiGLU 数据流">
         <p style={{ marginBottom: 10, fontSize: '0.9rem', color: 'var(--fg2)' }}>
