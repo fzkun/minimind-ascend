@@ -1,0 +1,1 @@
+import{r as u}from"./index-DB782DBc.js";function p(c,o,t,r){const f=u.useRef(null),a=u.useCallback(()=>{const e=f.current;if(!e)return;const n=e.getContext("2d");if(!n)return;const s=window.devicePixelRatio||1;e.width=t*s,e.height=r*s,e.style.width=t+"px",e.style.height=r+"px",n.setTransform(s,0,0,s,0,0),c(n,t,r)},[t,r,...o]);return u.useEffect(()=>{a()},[a]),f}export{p as u};
