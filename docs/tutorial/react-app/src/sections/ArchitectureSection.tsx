@@ -539,6 +539,28 @@ export default function ArchitectureSection() {
             </div>
           </div>
         )}
+
+        <SourcePanel
+          title="对照源码：eval_llm.py:80-85 (模型推理生成)"
+          code={`# 调用 model.generate() 逐 token 生成回答
+generated_ids = model.generate(
+    inputs=inputs["input_ids"],
+    attention_mask=inputs["attention_mask"],
+    max_new_tokens=args.max_new_tokens,
+    do_sample=True,             # 启用随机采样（非贪心）
+    streamer=streamer,          # TextStreamer 实现打字机效果
+    pad_token_id=tokenizer.pad_token_id,
+    eos_token_id=tokenizer.eos_token_id,
+    top_p=args.top_p,           # nucleus 采样阈值 (0.85)
+    temperature=args.temperature # 温度控制随机性 (0.85)
+)
+# generate() 内部循环：
+# 1. logits = lm_head(model(input_ids))   → 6400 维打分
+# 2. probs = softmax(logits / temperature) → 概率分布
+# 3. next_token = sample(probs, top_p)     → 采样一个 token
+# 4. input_ids = concat(input_ids, next_token) → 拼接
+# 5. 重复直到遇到 eos_token_id 或达到 max_new_tokens`}
+        />
       </Card>
 
       {viewToggle}
@@ -717,6 +739,21 @@ class MiniMindForCausalLM(PreTrainedModel):
               <code>lm_head</code> 与 <code>embed_tokens</code> 共享权重（<code>tie_word_embeddings</code>），减少参数量。
             </p>
             <svg width="100%" height={550} viewBox="0 0 720 550" dangerouslySetInnerHTML={{ __html: modelSvg }} />
+            <SourcePanel
+              title="对照源码：model/model_minimind.py:427-435 (MiniMindForCausalLM.__init__)"
+              code={`class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
+    config_class = MiniMindConfig
+
+    def __init__(self, config: MiniMindConfig = None):
+        self.config = config or MiniMindConfig()
+        super().__init__(self.config)
+        # 模型主干：Embedding + N × TransformerBlock + RMSNorm
+        self.model = MiniMindModel(self.config)
+        # 输出投影头：hidden_size → vocab_size
+        self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
+        # 关键：Embedding 和 LM Head 共享权重（tie_word_embeddings）
+        self.model.embed_tokens.weight = self.lm_head.weight`}
+            />
           </Card>
 
           <Card title="逐层参数详解">
@@ -747,6 +784,31 @@ class MiniMindForCausalLM(PreTrainedModel):
                 </div>
               ))}
             </div>
+            <SourcePanel
+              title="对照源码：model/model_minimind.py:376-390 (MiniMindModel.__init__)"
+              code={`class MiniMindModel(nn.Module):
+    def __init__(self, config: MiniMindConfig):
+        super().__init__()
+        self.vocab_size = config.vocab_size
+        self.num_hidden_layers = config.num_hidden_layers
+        # Token ID → 向量 (6400 × 512)，与 lm_head 共享
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
+        self.dropout = nn.Dropout(config.dropout)
+        # N 个 TransformerBlock（每个含 Attention + FFN）
+        self.layers = nn.ModuleList([
+            MiniMindBlock(l, config) for l in range(self.num_hidden_layers)
+        ])
+        # 最终归一化
+        self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        # 预计算 RoPE 位置编码 (cos/sin)
+        freqs_cos, freqs_sin = precompute_freqs_cis(
+            dim=config.hidden_size // config.num_attention_heads,
+            end=config.max_position_embeddings,
+            rope_base=config.rope_theta
+        )
+        self.register_buffer("freqs_cos", freqs_cos, persistent=False)
+        self.register_buffer("freqs_sin", freqs_sin, persistent=False)`}
+            />
           </Card>
 
           <Card title="Dense vs MoE：FFN 层的差异">
@@ -822,6 +884,26 @@ MOEFeedForward.forward(x):
                 </p>
               </div>
             </div>
+            <SourcePanel
+              title="对照源码：model/model_minimind.py:150-162 & 435 (Attention + 权重共享)"
+              code={`class Attention(nn.Module):
+    def __init__(self, args: MiniMindConfig):
+        # GQA: Q 头数 (8) 和 KV 头数 (2) 可以不同
+        self.n_local_heads = args.num_attention_heads      # Q 头数 = 8
+        self.n_local_kv_heads = args.num_key_value_heads   # KV 头数 = 2
+        self.n_rep = self.n_local_heads // self.n_local_kv_heads  # 每组 4 个 Q 共享 1 个 KV
+        self.head_dim = args.hidden_size // args.num_attention_heads  # 64
+
+        # Q: [512, 8×64=512]  K: [512, 2×64=128]  V: [512, 2×64=128]
+        self.q_proj = nn.Linear(args.hidden_size, args.num_attention_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(args.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.v_proj = nn.Linear(args.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.o_proj = nn.Linear(args.num_attention_heads * self.head_dim, args.hidden_size, bias=False)
+
+# ---- 权重共享 (MiniMindForCausalLM.__init__) ----
+# embed_tokens 和 lm_head 共享同一个 [6400, 512] 权重矩阵
+self.model.embed_tokens.weight = self.lm_head.weight  # tie_word_embeddings`}
+            />
           </Card>
         </>
       )}
@@ -937,6 +1019,37 @@ MOEFeedForward.forward(x):
                 正确答案：<strong style={{ color: '#10b981' }}>北京</strong> — 每轮训练后，模型的预测越来越接近正确答案，损失值（loss）不断下降
               </div>
             </div>
+
+            <SourcePanel
+              title="对照源码：trainer/train_full_sft.py:23-68 (训练循环)"
+              code={`def train_epoch(epoch, loader, iters, start_step=0, wandb=None):
+    for step, (input_ids, labels) in enumerate(loader):
+        input_ids = input_ids.to(args.device)
+        labels = labels.to(args.device)
+        # 动态调整学习率（余弦退火）
+        lr = get_lr(epoch * iters + step, args.epochs * iters, args.learning_rate)
+
+        # Step 1-2: 前向传播 — 模型预测 + 计算损失
+        with autocast_ctx:  # 混合精度 (float16/bfloat16)
+            res = model(input_ids, labels=labels)  # → CrossEntropy Loss
+            loss = res.loss + res.aux_loss         # MoE 加辅助损失
+            loss = loss / args.accumulation_steps  # 梯度累积
+
+        # Step 3: 反向传播 — 计算每个参数的梯度
+        scaler.scale(loss).backward()
+
+        # Step 4-5: 更新参数（每 accumulation_steps 步执行一次）
+        if (step + 1) % args.accumulation_steps == 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)  # 梯度裁剪
+            scaler.step(optimizer)   # 用梯度更新参数
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)  # 清空梯度
+
+        # 定期保存权重
+        if step % args.save_interval == 0:
+            torch.save(model.state_dict(), "out/full_sft_512.pth")`}
+            />
           </Card>
 
           <Card title="训练阶段流程图">
@@ -962,6 +1075,27 @@ MOEFeedForward.forward(x):
                 <span style={{ fontSize: '0.85rem', color: 'var(--fg2)' }}> — {PIPELINE_STAGES[selectedStage].desc}</span>
               </div>
             )}
+            <SourcePanel
+              title="对照源码：训练脚本启动命令（trainer/*.py）"
+              code={`# 1. 预训练：在大规模文本上学习语言模式
+python trainer/train_pretrain.py --epochs 1 --batch_size 32 --learning_rate 5e-4
+
+# 2. 全参数 SFT：在对话数据上微调
+python trainer/train_full_sft.py --epochs 2 --batch_size 16 --learning_rate 1e-6 \\
+    --from_weight pretrain  # 加载预训练权重
+
+# 3. LoRA 微调：冻结主干，只训练低秩适配器
+python trainer/train_lora.py --epochs 50 --batch_size 32 --learning_rate 5e-4 \\
+    --from_weight full_sft  # 加载 SFT 权重
+
+# 4. DPO 偏好对齐：通过 chosen/rejected 对比优化
+python trainer/train_dpo.py --epochs 1 --batch_size 4 --learning_rate 4e-8 \\
+    --from_weight full_sft
+
+# 5. GRPO 在线强化学习：组相对策略优化
+python trainer/train_grpo.py --epochs 1 --batch_size 2 --learning_rate 2e-6 \\
+    --from_weight full_sft`}
+            />
           </Card>
 
           <Card title="各阶段配置对比">
@@ -982,6 +1116,24 @@ MOEFeedForward.forward(x):
                 </div>
               ))}
             </div>
+            <SourcePanel
+              title="对照源码：各训练脚本的 argparse 参数（共同模式）"
+              code={`# 所有 9 个训练脚本共享的核心参数模式：
+parser.add_argument("--save_dir", default="../out")          # 权重保存目录
+parser.add_argument("--save_weight", default="full_sft")     # 保存权重前缀名
+parser.add_argument("--from_weight", default="pretrain")     # 加载的上一阶段权重
+parser.add_argument("--epochs", type=int, default=2)         # 训练轮数
+parser.add_argument("--batch_size", type=int, default=16)    # 批大小
+parser.add_argument("--learning_rate", type=float, default=1e-6)  # 初始学习率
+parser.add_argument("--hidden_size", type=int, default=512)  # 隐藏层维度
+parser.add_argument("--num_hidden_layers", type=int, default=8)   # Transformer 层数
+parser.add_argument("--use_moe", type=int, default=0)        # 是否使用 MoE
+parser.add_argument("--grad_clip", type=float, default=1.0)  # 梯度裁剪阈值
+parser.add_argument("--accumulation_steps", type=int, default=1)  # 梯度累积步数
+
+# 权重文件命名规则：out/{save_weight}_{hidden_size}[_moe].pth
+# 例如：out/pretrain_512.pth → out/full_sft_512.pth → out/dpo_512.pth`}
+            />
           </Card>
 
           <Card title="权重传递与数据流">
@@ -1056,6 +1208,27 @@ MOEFeedForward.forward(x):
                 </div>
               ))}
             </div>
+            <SourcePanel
+              title="对照源码：model/model_minimind.py 核心类定义位置"
+              code={`# model/model_minimind.py 中的类定义及行号：
+#
+# Line 8:   class MiniMindConfig(PretrainedConfig)   — 模型超参数配置
+# Line 96:  class RMSNorm(nn.Module)                  — 归一化层
+# Line 107: precompute_freqs_cis()                    — RoPE 预计算
+# Line 150: class Attention(nn.Module)                — GQA 注意力
+# Line 216: class FeedForward(nn.Module)              — SwiGLU FFN
+# Line 232: class MoEGate(nn.Module)                  — MoE 路由门控
+# Line 288: class MOEFeedForward(nn.Module)           — MoE FFN 层
+# Line 352: class MiniMindBlock(nn.Module)            — Transformer Block
+# Line 376: class MiniMindModel(nn.Module)            — 模型主干
+# Line 427: class MiniMindForCausalLM(PreTrainedModel) — 完整 LLM
+
+# trainer/trainer_utils.py 中的公共函数：
+# init_model()               — 加载模型和分词器
+# init_distributed_mode()    — DDP 初始化 (NCCL/HCCL)
+# get_lr()                   — 余弦退火学习率调度
+# lm_checkpoint()            — 断点续训保存/加载`}
+            />
           </Card>
 
           <Card title="模块依赖关系">
@@ -1099,6 +1272,27 @@ from model.model_minimind import (
                 </pre>
               </div>
             </div>
+            <SourcePanel
+              title="对照源码：dataset/lm_dataset.py (4 个数据集类)"
+              code={`# dataset/lm_dataset.py 提供 4 个 Dataset 类，分别服务不同训练阶段：
+
+class PretrainDataset(Dataset):
+    """预训练数据集：读取 JSONL 原始文本，拼接为固定长度序列"""
+    # labels = input_ids（所有 token 都参与 loss 计算）
+
+class SFTDataset(Dataset):
+    """SFT 对话数据集：使用 chat_template 格式化多轮对话"""
+    # labels 中 user 部分设为 -100（不计算 loss）
+    # 只对 assistant 回复部分计算 loss
+
+class DPODataset(Dataset):
+    """DPO 偏好数据集：每条数据包含 chosen 和 rejected 两个回复"""
+    # 用于 Direct Preference Optimization 训练
+
+class RLAIFDataset(Dataset):
+    """RLAIF 在线采样数据集：只包含 prompt，回复由模型在线生成"""
+    # 用于 PPO / GRPO / SPO 等强化学习训练`}
+            />
           </Card>
 
           <Card title="模型尺寸对比">
@@ -1128,6 +1322,33 @@ from model.model_minimind import (
               <span>ffn = intermediate_size</span>
               <span>MoE: num_experts_per_tok=2</span>
             </div>
+            <SourcePanel
+              title="对照源码：model/model_minimind.py:8-78 (MiniMindConfig)"
+              code={`class MiniMindConfig(PretrainedConfig):
+    model_type = "minimind"
+
+    def __init__(self,
+        hidden_size: int = 512,          # Small=512, Base/MoE=768
+        intermediate_size: int = None,   # 自动计算: int(hidden_size * 8/3) 对齐到 64
+        num_attention_heads: int = 8,    # Q 头数
+        num_key_value_heads: int = 2,    # KV 头数 (GQA)
+        num_hidden_layers: int = 8,      # Small/MoE=8, Base=16
+        vocab_size: int = 6400,          # BPE 词表大小
+        rms_norm_eps: float = 1e-05,
+        rope_theta: int = 1000000.0,     # RoPE 基频
+        flash_attn: bool = True,         # 是否使用 Flash Attention
+        # MoE 配置 (use_moe=False 时以下无效)
+        use_moe: bool = False,
+        num_experts_per_tok: int = 2,    # 每个 token 选 2 个专家
+        n_routed_experts: int = 4,       # 路由专家总数
+        n_shared_experts: int = 1,       # 共享专家数量
+        aux_loss_alpha: float = 0.01,    # 辅助负载均衡损失系数
+        ...
+    ):
+    # intermediate_size 自动计算示例：
+    # hidden_size=512 → int(512*8/3)=1365 → 对齐64 → 1408
+    # hidden_size=768 → int(768*8/3)=2048 → 对齐64 → 2048`}
+            />
           </Card>
         </>
       )}
