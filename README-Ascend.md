@@ -10,7 +10,7 @@
 | 驱动 | Ascend NPU 驱动已安装（`/usr/local/Ascend/driver`） |
 | 工具 | `npu-smi`（`/usr/local/sbin/npu-smi`） |
 | 软件 | Docker |
-| 基础镜像 | `ascend-pytorch:24.0.0-2.6.0-A2-910b` (CANN 8.1.RC1, PyTorch 2.6.0, Python 3.10) |
+| 基础镜像 | `ascend-pretrain:latest` (torch 2.1 + CANN 8.0) |
 
 ## 第1步：准备数据集
 
@@ -77,7 +77,41 @@ NPU available: True
 NPU count: 8
 ```
 
-## 第4步：启动训练
+## 一键全流程训练（推荐）
+
+使用 `scripts/run_all_npu.sh` 可一键完成从数据下载到模型评测的完整流水线，自动处理 Docker 启动、阶段依赖和权重检查：
+
+```bash
+# 运行完整流程（下载数据 → 构建镜像 → pretrain → sft → dpo → reason → eval）
+bash scripts/run_all_npu.sh all
+
+# 运行最小核心流程（pretrain → sft → eval）
+bash scripts/run_all_npu.sh core
+
+# 运行单个阶段
+bash scripts/run_all_npu.sh pretrain
+
+# 运行多个指定阶段
+bash scripts/run_all_npu.sh pretrain full_sft eval
+
+# 启用断点续训
+bash scripts/run_all_npu.sh --resume all
+
+# 使用 768 维度模型
+bash scripts/run_all_npu.sh --hidden-size 768 core
+
+# 仅打印命令，不实际执行（调试用）
+bash scripts/run_all_npu.sh --dry-run all
+
+# 已在容器内时，跳过 Docker 启动
+bash scripts/run_all_npu.sh --inside-docker all
+```
+
+脚本会自动记录每个阶段的耗时，失败时立即终止并报错。详细用法见 `bash scripts/run_all_npu.sh --help`。
+
+> 如果需要更细粒度的控制（如自定义参数），可参考下面的手动分步执行方式。
+
+## 第4步：启动训练（手动分步执行）
 
 下面所有命令均通过 Docker 运行。通用的 Docker 启动前缀为：
 
@@ -303,7 +337,7 @@ $DOCKER_RUN bash scripts/run_train_npu.sh pretrain \
 | 通信后端 | NCCL | HCCL |
 | 默认精度 | bfloat16 | float16 |
 | torch.compile | 支持 | 跳过（兼容性有限） |
-| GradScaler | `torch.cuda.amp.GradScaler` | `torch.amp.GradScaler('npu')` |
+| GradScaler | `torch.cuda.amp.GradScaler` | `torch.npu.amp.GradScaler` |
 | 设备名称 | `cuda:0` | `npu:0` |
 
 代码已做自动检测，无需手动切换。当 `torch_npu` 可导入时自动使用 NPU 路径，否则回退到 CUDA。
@@ -313,6 +347,7 @@ $DOCKER_RUN bash scripts/run_train_npu.sh pretrain \
 ```
 Dockerfile.ascend          — Docker 构建文件
 requirements_npu.txt       — NPU 环境依赖
+scripts/run_all_npu.sh     — 全流程训练编排脚本（一键运行）
 scripts/run_train_npu.sh   — 8卡分布式训练启动脚本
 trainer/trainer_utils.py   — 核心工具模块（NPU/CUDA 双路径）
 trainer/train_*.py         — 各阶段训练脚本（均已适配 NPU）
