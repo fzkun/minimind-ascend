@@ -292,7 +292,7 @@ if __name__ == "__main__":
     if device_type == "cpu":
         autocast_ctx = nullcontext()
     elif device_type == "npu":
-        autocast_ctx = torch.cuda.amp.autocast(dtype=dtype)
+        autocast_ctx = torch.npu.amp.autocast(dtype=dtype)
     else:
         autocast_ctx = torch.cuda.amp.autocast(dtype=dtype)
     
