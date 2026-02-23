@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import TopBar from './components/TopBar';
 
 const sections = [
+  lazy(() => import('./sections/ArchitectureSection')),
   lazy(() => import('./sections/TokenizationSection')),
   lazy(() => import('./sections/EmbeddingSection')),
   lazy(() => import('./sections/AttentionSection')),
