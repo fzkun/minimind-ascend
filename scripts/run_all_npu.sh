@@ -338,7 +338,7 @@ stage_eval() {
         run_cmd "cd $PROJECT_DIR && echo 0 | python eval_llm.py --weight full_sft --device npu:0 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS"
     else
         local docker_cmd
-        docker_cmd=$(run_docker)
+        docker_cmd=$(run_docker "$PROJECT_DIR/model:/workspace/minimind/model" "$PROJECT_DIR/eval_llm.py:/workspace/minimind/eval_llm.py")
         run_cmd "$docker_cmd bash -c 'echo 0 | python eval_llm.py --weight full_sft --device npu:0 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS'"
     fi
 }

@@ -434,6 +434,11 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
         self.model.embed_tokens.weight = self.lm_head.weight
 
+    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, **kwargs):
+        if past_key_values and past_key_values[0] is not None:
+            input_ids = input_ids[:, -1:]
+        return {"input_ids": input_ids, "attention_mask": attention_mask, "past_key_values": past_key_values, "use_cache": True}
+
     def forward(self,
                 input_ids: Optional[torch.Tensor] = None,
                 attention_mask: Optional[torch.Tensor] = None,
