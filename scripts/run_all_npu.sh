@@ -40,6 +40,7 @@
 #   --vllm-image IMAGE    vLLM Docker 镜像（默认 quay.io/ascend/vllm-ascend:v0.13.0）
 #   --vllm-port PORT      vLLM 服务端口（默认 8000）
 #   --max-model-len N     vLLM 最大序列长度（默认 2048）
+#   --use-moe             启用 MoE 架构（145M 参数，权重带 _moe 后缀）
 #   --dry-run             仅打印将要执行的命令，不实际执行
 #   --help                显示帮助信息
 
@@ -53,6 +54,7 @@ HIDDEN_SIZE=512
 NUM_HIDDEN_LAYERS=8
 TEACHER_HIDDEN_SIZE=768
 REWARD_MODEL_PATH=""
+USE_MOE=0
 RESUME_FLAG=""
 INSIDE_DOCKER=0
 FORCE_BUILD=0
@@ -91,7 +93,7 @@ log_error() {
 }
 
 show_help() {
-    head -n 44 "$0" | tail -n +2 | sed 's/^# \?//'
+    head -n 45 "$0" | tail -n +2 | sed 's/^# \?//'
     exit 0
 }
 
@@ -109,7 +111,9 @@ check_data() {
 check_weight() {
     local weight_name="$1"
     local hidden="$2"
-    local pth="$PROJECT_DIR/out/${weight_name}_${hidden}.pth"
+    local moe_suffix=""
+    [ "$USE_MOE" -eq 1 ] && moe_suffix="_moe"
+    local pth="$PROJECT_DIR/out/${weight_name}_${hidden}${moe_suffix}.pth"
     if [ ! -f "$pth" ]; then
         log_error "前置权重不存在: $pth"
         log_error "请先完成 $weight_name 阶段的训练"
@@ -217,7 +221,7 @@ stage_tokenizer() {
 
 stage_pretrain() {
     check_data "pretrain_hq.jsonl" || return 1
-    local train_args="--epochs 1 --batch_size 32 --learning_rate 5e-4 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/pretrain_hq.jsonl $RESUME_FLAG"
+    local train_args="--epochs 1 --batch_size 32 --learning_rate 5e-4 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/pretrain_hq.jsonl $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" pretrain $train_args
     else
@@ -230,7 +234,7 @@ stage_pretrain() {
 stage_full_sft() {
     check_data "sft_mini_512.jsonl" || return 1
     check_weight "pretrain" "$HIDDEN_SIZE" || return 1
-    local train_args="--epochs 2 --batch_size 16 --learning_rate 1e-6 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/sft_mini_512.jsonl $RESUME_FLAG"
+    local train_args="--epochs 2 --batch_size 16 --learning_rate 1e-6 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/sft_mini_512.jsonl $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" full_sft $train_args
     else
@@ -243,7 +247,7 @@ stage_full_sft() {
 stage_lora() {
     check_data "lora_identity.jsonl" || return 1
     check_weight "full_sft" "$HIDDEN_SIZE" || return 1
-    local train_args="--epochs 50 --batch_size 32 --learning_rate 1e-4 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/lora_identity.jsonl $RESUME_FLAG"
+    local train_args="--epochs 50 --batch_size 32 --learning_rate 1e-4 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/lora_identity.jsonl $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" lora $train_args
     else
@@ -256,7 +260,7 @@ stage_lora() {
 stage_dpo() {
     check_data "dpo.jsonl" || return 1
     check_weight "full_sft" "$HIDDEN_SIZE" || return 1
-    local train_args="--epochs 1 --batch_size 4 --learning_rate 4e-8 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/dpo.jsonl $RESUME_FLAG"
+    local train_args="--epochs 1 --batch_size 4 --learning_rate 4e-8 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/dpo.jsonl $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" dpo $train_args
     else
@@ -269,7 +273,7 @@ stage_dpo() {
 stage_reason() {
     check_data "r1_mix_1024.jsonl" || return 1
     check_weight "dpo" "$HIDDEN_SIZE" || return 1
-    local train_args="--epochs 1 --batch_size 8 --learning_rate 1e-6 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight dpo --data_path ../dataset/r1_mix_1024.jsonl $RESUME_FLAG"
+    local train_args="--epochs 1 --batch_size 8 --learning_rate 1e-6 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight dpo --data_path ../dataset/r1_mix_1024.jsonl $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" reason $train_args
     else
@@ -286,7 +290,7 @@ stage_ppo() {
         log_error "PPO 阶段需要 Reward 模型，请通过 --reward-model 指定路径"
         return 1
     fi
-    local train_args="--epochs 1 --batch_size 2 --learning_rate 8e-8 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight reason --data_path ../dataset/rlaif-mini.jsonl --reward_model_path $REWARD_MODEL_PATH $RESUME_FLAG"
+    local train_args="--epochs 1 --batch_size 2 --learning_rate 8e-8 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight reason --data_path ../dataset/rlaif-mini.jsonl --reward_model_path $REWARD_MODEL_PATH $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" ppo $train_args
     else
@@ -303,7 +307,7 @@ stage_grpo() {
         log_error "GRPO 阶段需要 Reward 模型，请通过 --reward-model 指定路径"
         return 1
     fi
-    local train_args="--epochs 1 --batch_size 2 --learning_rate 8e-8 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight reason --data_path ../dataset/rlaif-mini.jsonl --reward_model_path $REWARD_MODEL_PATH $RESUME_FLAG"
+    local train_args="--epochs 1 --batch_size 2 --learning_rate 8e-8 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight reason --data_path ../dataset/rlaif-mini.jsonl --reward_model_path $REWARD_MODEL_PATH $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" grpo $train_args
     else
@@ -320,7 +324,7 @@ stage_spo() {
         log_error "SPO 阶段需要 Reward 模型，请通过 --reward-model 指定路径"
         return 1
     fi
-    local train_args="--epochs 1 --batch_size 2 --learning_rate 1e-7 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight reason --data_path ../dataset/rlaif-mini.jsonl --reward_model_path $REWARD_MODEL_PATH $RESUME_FLAG"
+    local train_args="--epochs 1 --batch_size 2 --learning_rate 1e-7 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --from_weight reason --data_path ../dataset/rlaif-mini.jsonl --reward_model_path $REWARD_MODEL_PATH $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" spo $train_args
     else
@@ -334,7 +338,7 @@ stage_distillation() {
     check_data "sft_mini_512.jsonl" || return 1
     check_weight "full_sft" "$TEACHER_HIDDEN_SIZE" || return 1
     check_weight "full_sft" "$HIDDEN_SIZE" || return 1
-    local train_args="--epochs 6 --batch_size 32 --learning_rate 5e-6 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/sft_mini_512.jsonl --student_hidden_size $HIDDEN_SIZE --teacher_hidden_size $TEACHER_HIDDEN_SIZE $RESUME_FLAG"
+    local train_args="--epochs 6 --batch_size 32 --learning_rate 5e-6 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS --data_path ../dataset/sft_mini_512.jsonl --student_hidden_size $HIDDEN_SIZE --teacher_hidden_size $TEACHER_HIDDEN_SIZE $MOE_FLAG $RESUME_FLAG"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
         run_cmd bash "$PROJECT_DIR/scripts/run_train_npu.sh" distillation $train_args
     else
@@ -454,12 +458,14 @@ stage_vllm() {
 
 stage_eval() {
     check_weight "full_sft" "$HIDDEN_SIZE" || return 1
+    local eval_moe=""
+    [ "$USE_MOE" -eq 1 ] && eval_moe="--use_moe 1"
     if [ "$INSIDE_DOCKER" -eq 1 ]; then
-        run_cmd "cd $PROJECT_DIR && echo 0 | python eval_llm.py --weight full_sft --device npu:0 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS"
+        run_cmd "cd $PROJECT_DIR && echo 0 | python eval_llm.py --weight full_sft --device npu:0 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS $eval_moe"
     else
         local docker_cmd
         docker_cmd=$(run_docker "$PROJECT_DIR/model:/workspace/minimind/model" "$PROJECT_DIR/eval_llm.py:/workspace/minimind/eval_llm.py")
-        run_cmd "$docker_cmd bash -c 'echo 0 | python eval_llm.py --weight full_sft --device npu:0 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS'"
+        run_cmd "$docker_cmd bash -c 'echo 0 | python eval_llm.py --weight full_sft --device npu:0 --hidden_size $HIDDEN_SIZE --num_hidden_layers $NUM_HIDDEN_LAYERS $eval_moe'"
     fi
 }
 
@@ -496,6 +502,10 @@ while [ $# -gt 0 ]; do
             ;;
         --force-build)
             FORCE_BUILD=1
+            shift
+            ;;
+        --use-moe)
+            USE_MOE=1
             shift
             ;;
         --weight)
@@ -577,8 +587,14 @@ EXPANDED_STAGES=($(expand_stages "${STAGES[@]}"))
 # ============================================================
 # 主函数
 # ============================================================
+# 构建 MoE 参数
+MOE_FLAG=""
+if [ "$USE_MOE" -eq 1 ]; then
+    MOE_FLAG="--use_moe 1"
+fi
+
 log_info "MiniMind 昇腾910B 全流程训练"
-log_info "模型维度: $HIDDEN_SIZE, 层数: $NUM_HIDDEN_LAYERS"
+log_info "模型维度: $HIDDEN_SIZE, 层数: $NUM_HIDDEN_LAYERS$([ "$USE_MOE" -eq 1 ] && echo ', MoE: 开启')"
 log_info "执行阶段: ${EXPANDED_STAGES[*]}"
 if [ -n "$RESUME_FLAG" ]; then
     log_info "断点续训: 已启用"
