@@ -1,0 +1,2242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniMind 交互式可视化教学</title>
+<style>
+:root {
+  --bg: #ffffff; --bg2: #f5f5f5; --bg3: #e8e8e8;
+  --fg: #1a1a2e; --fg2: #555; --fg3: #888;
+  --accent: #4f46e5; --accent2: #7c3aed; --accent3: #06b6d4;
+  --green: #10b981; --red: #ef4444; --orange: #f59e0b; --blue: #3b82f6;
+  --border: #ddd; --shadow: rgba(0,0,0,0.08);
+  --code-bg: #f8f8f8; --code-fg: #333;
+  --radius: 8px; --transition: 0.3s ease;
+}
+[data-theme="dark"] {
+  --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
+  --fg: #e2e8f0; --fg2: #94a3b8; --fg3: #64748b;
+  --accent: #818cf8; --accent2: #a78bfa; --accent3: #22d3ee;
+  --green: #34d399; --red: #f87171; --orange: #fbbf24; --blue: #60a5fa;
+  --border: #475569; --shadow: rgba(0,0,0,0.3);
+  --code-bg: #1e293b; --code-fg: #e2e8f0;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--fg);
+  transition: background var(--transition), color var(--transition);
+  line-height: 1.6; min-height: 100vh;
+}
+/* NAV */
+.top-bar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px var(--shadow);
+  display: flex; align-items: center; padding: 0 16px; height: 56px; gap: 8px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.top-bar .logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); white-space: nowrap; margin-right: 8px; }
+.tab-btn {
+  padding: 8px 14px; border: none; background: transparent; color: var(--fg2);
+  font-size: 0.85rem; cursor: pointer; border-radius: var(--radius);
+  white-space: nowrap; transition: all var(--transition); font-weight: 500;
+}
+.tab-btn:hover { background: var(--bg3); color: var(--fg); }
+.tab-btn.active { background: var(--accent); color: #fff; }
+.theme-toggle {
+  margin-left: auto; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 50%; width: 36px; height: 36px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+  flex-shrink: 0; transition: all var(--transition);
+}
+.theme-toggle:hover { border-color: var(--accent); }
+/* MAIN */
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+.section { display: none; }
+.section.active { display: block; }
+.section h2 { font-size: 1.5rem; margin-bottom: 8px; color: var(--accent); }
+.section .desc { color: var(--fg2); margin-bottom: 20px; font-size: 0.95rem; }
+/* CARDS */
+.card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 6px var(--shadow);
+}
+.card h3 { font-size: 1.1rem; margin-bottom: 12px; color: var(--fg); }
+/* BUTTONS */
+.btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--fg); cursor: pointer; font-size: 0.85rem;
+  transition: all var(--transition);
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { opacity: 0.85; }
+/* SLIDER */
+input[type="range"] {
+  -webkit-appearance: none; width: 100%; height: 6px; border-radius: 3px;
+  background: var(--bg3); outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+}
+/* TOKEN DISPLAY */
+.token-box {
+  display: inline-block; padding: 2px 8px; margin: 2px; border-radius: 4px;
+  font-size: 0.85rem; font-family: monospace; transition: all 0.3s;
+}
+/* COLLAPSIBLE SOURCE */
+.source-panel { margin-top: 12px; }
+.source-toggle {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  color: var(--fg3); font-size: 0.85rem; padding: 6px 0; user-select: none;
+}
+.source-toggle:hover { color: var(--accent); }
+.source-toggle .arrow { transition: transform 0.3s; display: inline-block; }
+.source-toggle.open .arrow { transform: rotate(90deg); }
+.source-content {
+  display: none; background: var(--code-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px; margin-top: 6px;
+  overflow-x: auto; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.8rem;
+  line-height: 1.5; color: var(--code-fg);
+}
+.source-content.open { display: block; }
+/* HEATMAP & CANVAS */
+canvas { border-radius: var(--radius); display: block; max-width: 100%; }
+/* SVG */
+svg text { font-family: -apple-system, sans-serif; }
+/* GRID */
+.viz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* MATRIX */
+.matrix-table { border-collapse: collapse; font-size: 0.75rem; font-family: monospace; }
+.matrix-table td, .matrix-table th {
+  padding: 4px 8px; border: 1px solid var(--border); text-align: center;
+}
+.matrix-table th { background: var(--bg3); }
+.matrix-table .highlight { background: var(--accent); color: #fff; transition: background 0.3s; }
+/* FLOW */
+.flow-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.flow-box {
+  padding: 8px 16px; border-radius: var(--radius); font-size: 0.85rem;
+  border: 2px solid var(--border); background: var(--bg); text-align: center;
+  min-width: 80px; transition: all 0.3s;
+}
+.flow-box.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.flow-arrow { color: var(--fg3); font-size: 1.2rem; }
+/* LABEL */
+.label { font-size: 0.75rem; color: var(--fg3); margin-bottom: 4px; }
+.value { font-family: monospace; font-size: 0.9rem; color: var(--accent); }
+/* TEXTAREA */
+textarea {
+  width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg); color: var(--fg); font-size: 0.9rem; resize: vertical;
+  font-family: inherit; min-height: 60px;
+}
+textarea:focus { outline: none; border-color: var(--accent); }
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .viz-grid { grid-template-columns: 1fr; }
+  .top-bar { height: auto; flex-wrap: nowrap; padding: 8px; }
+  .tab-btn { padding: 6px 10px; font-size: 0.78rem; }
+  .container { padding: 16px 10px; }
+  .card { padding: 14px; }
+}
+/* ANIMATION */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.section.active { animation: fadeIn 0.3s ease; }
+@keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.pulse { animation: pulse 0.6s ease; }
+/* BAR CHART */
+.bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding: 4px 0; }
+.bar {
+  flex: 1; background: var(--accent); border-radius: 2px 2px 0 0;
+  min-width: 4px; transition: height 0.5s ease; position: relative;
+}
+.bar:hover { opacity: 0.8; }
+/* TOOLTIP */
+.tooltip {
+  position: absolute; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; font-size: 0.75rem; pointer-events: none;
+  white-space: nowrap; z-index: 50; box-shadow: 0 2px 8px var(--shadow);
+}
+/* STEP INDICATOR */
+.step-indicator {
+  display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.step-dot {
+  width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.7rem; color: var(--fg3); transition: all 0.3s; cursor: pointer;
+}
+.step-dot.active { border-color: var(--accent); background: var(--accent); color: #fff; }
+.step-dot.done { border-color: var(--green); background: var(--green); color: #fff; }
+/* SHAPE BADGE */
+.shape-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px;
+  background: var(--bg3); font-family: monospace; font-size: 0.8rem;
+  color: var(--accent); border: 1px solid var(--border);
+}
+/* SiLU curve area */
+.silu-demo { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <span class="logo">MiniMind</span>
+  <button class="tab-btn active" data-tab="0">1.分词</button>
+  <button class="tab-btn" data-tab="1">2.Embedding</button>
+  <button class="tab-btn" data-tab="2">3.注意力</button>
+  <button class="tab-btn" data-tab="3">4.RoPE</button>
+  <button class="tab-btn" data-tab="4">5.FFN&amp;MoE</button>
+  <button class="tab-btn" data-tab="5">6.训练流程</button>
+  <button class="tab-btn" data-tab="6">7.前向传播</button>
+  <button class="theme-toggle" id="themeBtn" title="切换主题">🌙</button>
+</div>
+<div class="container">
+<!-- ==================== SECTION 1: 分词过程 ==================== -->
+<div class="section active" id="sec0">
+  <h2>1. 分词过程 (Tokenization)</h2>
+  <p class="desc">将原始文本拆分为 token 序列，是 LLM 处理语言的第一步。MiniMind 使用 BPE（字节对编码）分词器，词表大小 vocab_size = 6400。</p>
+
+  <div class="card">
+    <h3>BPE 合并动画</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">BPE 从字符级开始，反复合并最高频的相邻对，直到达到目标词表大小。点击按钮观看合并过程：</p>
+    <div id="bpeArea" style="min-height:50px;padding:10px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:10px;display:flex;flex-wrap:wrap;gap:2px;align-items:center"></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="bpePrev">◀ 上一步</button>
+      <button class="btn primary" id="bpeNext">下一步 ▶</button>
+      <button class="btn" id="bpeAuto">▶ 自动播放</button>
+      <button class="btn" id="bpeReset">重置</button>
+      <span style="font-size:0.8rem;color:var(--fg3)" id="bpeStatus">步骤 0/0</span>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：dataset/lm_dataset.py:31-49 (PretrainDataset)
+      </div>
+      <pre class="source-content"><code>class PretrainDataset(Dataset):
+    def __init__(self, data_path, tokenizer, max_length=512):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.samples = load_dataset('json', data_files=data_path, split='train')
+
+    def __getitem__(self, index):
+        sample = self.samples[index]
+        tokens = self.tokenizer(
+            str(sample['text']),
+            add_special_tokens=False,
+            max_length=self.max_length - 2,
+            truncation=True
+        ).input_ids
+        tokens = [self.tokenizer.bos_token_id] + tokens + [self.tokenizer.eos_token_id]
+        input_ids = tokens + [self.tokenizer.pad_token_id] * (self.max_length - len(tokens))
+        labels = input_ids.clone()
+        labels[input_ids == self.tokenizer.pad_token_id] = -100
+        return input_ids, labels</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>实时分词演示</h3>
+    <p style="margin-bottom:8px;font-size:0.9rem;color:var(--fg2)">在下方输入文本，查看分词结果（使用内嵌的高频 token 子集模拟）：</p>
+    <textarea id="tokenInput" placeholder="输入中文或英文文本，例如：你好世界 Hello World">你好，我是MiniMind。</textarea>
+    <div style="margin-top:10px">
+      <div class="label">Token 序列：</div>
+      <div id="tokenDisplay" style="min-height:36px;padding:8px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border)"></div>
+    </div>
+    <div style="margin-top:8px">
+      <div class="label">Token IDs：</div>
+      <div id="tokenIds" style="font-family:monospace;font-size:0.85rem;color:var(--accent);word-break:break-all"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 2: Token Embedding ==================== -->
+<div class="section" id="sec1">
+  <h2>2. Token Embedding</h2>
+  <p class="desc">每个 token ID 通过 Embedding 矩阵查找得到一个 hidden_size=512 维的向量。MiniMind 中 Embedding 层和 LM Head 共享权重。</p>
+
+  <div class="card">
+    <h3>矩阵查找动画</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">点击下方示例 token，观察 Embedding 矩阵中对应行被查找、输出 512 维向量的过程：</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px" id="embTokenBtns"></div>
+    <div class="viz-grid">
+      <div>
+        <div class="label">Embedding 矩阵 (6400 × 512) 局部视图</div>
+        <div id="embMatrix" style="overflow:auto;max-height:260px"></div>
+      </div>
+      <div>
+        <div class="label">输出向量 (512 维) 前 64 维可视化</div>
+        <div id="embBarChart" style="height:180px;display:flex;align-items:flex-end;gap:1px"></div>
+      </div>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：model/model_minimind.py:381, 434-435
+      </div>
+      <pre class="source-content"><code># MiniMindModel.__init__
+self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)  # [6400, 512]
+
+# MiniMindForCausalLM.__init__ — 权重共享
+self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+self.model.embed_tokens.weight = self.lm_head.weight  # 共享！</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>权重共享 (Weight Tying)</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">输入端的 Embedding 层和输出端的 LM Head 共享同一个权重矩阵，减少参数量并提升一致性。</p>
+    <svg id="weightTyingSvg" width="100%" height="160" viewBox="0 0 600 160"></svg>
+  </div>
+</div>
+
+<!-- ==================== SECTION 3: 自注意力机制 ==================== -->
+<div class="section" id="sec2">
+  <h2>3. 自注意力机制 (Self-Attention)</h2>
+  <p class="desc">注意力机制让每个 token 能"看到"序列中的其他 token。MiniMind 使用 GQA（分组查询注意力）：8 个 Q 头共享 2 个 KV 头，head_dim = 64。</p>
+
+  <div class="card">
+    <h3>Q / K / V 计算与 GQA 分组</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">输入经过三个线性投影得到 Q、K、V，然后按头拆分。GQA 中每 4 个 Q 头共享 1 个 KV 头：</p>
+    <svg id="qkvSvg" width="100%" height="260" viewBox="0 0 700 260"></svg>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：model/model_minimind.py:150-213 (Attention)
+      </div>
+      <pre class="source-content"><code>class Attention(nn.Module):
+    def __init__(self, args):
+        self.n_local_heads = args.num_attention_heads      # 8
+        self.n_local_kv_heads = args.num_key_value_heads   # 2
+        self.n_rep = self.n_local_heads // self.n_local_kv_heads  # 4
+        self.head_dim = args.hidden_size // args.num_attention_heads  # 64
+        self.q_proj = nn.Linear(hidden_size, num_heads * head_dim)     # 512→512
+        self.k_proj = nn.Linear(hidden_size, num_kv_heads * head_dim)  # 512→128
+        self.v_proj = nn.Linear(hidden_size, num_kv_heads * head_dim)  # 512→128
+
+    def forward(self, x, position_embeddings, ...):
+        xq = self.q_proj(x).view(bsz, seq_len, 8, 64)
+        xk = self.k_proj(x).view(bsz, seq_len, 2, 64)
+        xv = self.v_proj(x).view(bsz, seq_len, 2, 64)
+        xq, xk = apply_rotary_pos_emb(xq, xk, cos, sin)
+        # GQA: repeat KV heads to match Q heads
+        xk = repeat_kv(xk, n_rep=4)  # [B,S,2,64] → [B,S,8,64]
+        xv = repeat_kv(xv, n_rep=4)
+        scores = (xq @ xk.T) / sqrt(64) + causal_mask
+        output = softmax(scores) @ xv</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>注意力热力图</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">4 个 token 之间的注意力分数矩阵，应用因果掩码（上三角为 -∞）后经 softmax：</p>
+    <div class="viz-grid">
+      <div>
+        <canvas id="attnCanvas" width="300" height="300"></canvas>
+      </div>
+      <div>
+        <div style="margin-bottom:8px">
+          <div class="label">温度参数 (Temperature)</div>
+          <input type="range" id="tempSlider" min="0.1" max="3" step="0.1" value="1">
+          <span id="tempVal" class="value">1.0</span>
+        </div>
+        <div style="margin-bottom:8px">
+          <div class="label">tokens</div>
+          <div id="attnTokens" style="display:flex;gap:4px"></div>
+        </div>
+        <div class="label">说明</div>
+        <p style="font-size:0.85rem;color:var(--fg2)">每行表示一个 token 对所有可见 token 的注意力权重（softmax 后）。因果掩码确保 token 只能看到自身和之前的 token。降低温度使分布更尖锐，升高则更平滑。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>KV Cache 示意</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">推理时，已生成 token 的 K/V 被缓存，新 token 只需计算自身的 Q，与缓存拼接后计算注意力：</p>
+    <svg id="kvCacheSvg" width="100%" height="140" viewBox="0 0 700 140"></svg>
+  </div>
+</div>
+<!-- ==================== SECTION 4: RoPE 位置编码 ==================== -->
+<div class="section" id="sec3">
+  <h2>4. RoPE 位置编码</h2>
+  <p class="desc">旋转位置编码 (RoPE) 通过旋转向量将位置信息编码到 Q/K 中，使注意力分数自然反映相对位置。MiniMind 还支持 YaRN 频率缩放实现长上下文外推。</p>
+
+  <div class="card">
+    <h3>旋转向量动画</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">每个 head_dim=64 的维度被两两配对，每对以不同频率旋转。低维度对旋转快（高频），高维度对旋转慢（低频）：</p>
+    <div class="viz-grid">
+      <div>
+        <div class="label">频道 0（高频，快速旋转）</div>
+        <canvas id="ropeCanvas1" width="250" height="250"></canvas>
+      </div>
+      <div>
+        <div class="label">频道 31（低频，缓慢旋转）</div>
+        <canvas id="ropeCanvas2" width="250" height="250"></canvas>
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <div class="label">位置 position = <span id="ropePosVal" class="value">0</span></div>
+      <input type="range" id="ropePosSlider" min="0" max="127" step="1" value="0">
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：model/model_minimind.py:109-137
+      </div>
+      <pre class="source-content"><code>def precompute_freqs_cis(dim, end=32768, rope_base=1e6, rope_scaling=None):
+    # freqs[i] = 1 / (base ^ (2i/dim))，i=0..dim/2-1
+    freqs = 1.0 / (rope_base ** (torch.arange(0, dim, 2)[:dim//2].float() / dim))
+    t = torch.arange(end)
+    freqs = torch.outer(t, freqs)  # [seq_len, dim/2]
+    freqs_cos = torch.cat([cos(freqs), cos(freqs)], dim=-1)
+    freqs_sin = torch.cat([sin(freqs), sin(freqs)], dim=-1)
+    return freqs_cos, freqs_sin
+
+def apply_rotary_pos_emb(q, k, cos, sin):
+    def rotate_half(x):
+        return torch.cat((-x[..., x.shape[-1]//2:], x[..., :x.shape[-1]//2]), dim=-1)
+    q_embed = q * cos + rotate_half(q) * sin
+    k_embed = k * cos + rotate_half(k) * sin
+    return q_embed, k_embed</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>相对位置点积</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">RoPE 的关键特性：两个位置的 Q·K 点积只取决于它们的相对距离。拖动滑块观察点积随距离衰减：</p>
+    <canvas id="dotProductCanvas" width="500" height="200"></canvas>
+  </div>
+
+  <div class="card">
+    <h3>YaRN 频率缩放</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">YaRN 将频率维度分为三个区域，通过 γ(i) 线性插值实现长上下文外推 (factor=16, 2048→32768)：</p>
+    <svg id="yarnSvg" width="100%" height="220" viewBox="0 0 600 220"></svg>
+    <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.85rem">
+      <span style="color:var(--green)">■ 高频（不缩放）</span>
+      <span style="color:var(--orange)">■ 过渡带（线性插值）</span>
+      <span style="color:var(--red)">■ 低频（÷16 缩放）</span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 5: FFN & MoE ==================== -->
+<div class="section" id="sec4">
+  <h2>5. 前馈网络 & MoE</h2>
+  <p class="desc">每个 Transformer Block 中，注意力之后是前馈网络 (FFN)。MiniMind 使用 SwiGLU 激活，并可选择 MoE（混合专家）架构替换标准 FFN。</p>
+
+  <div class="card">
+    <h3>SwiGLU 数据流</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">SwiGLU = SiLU(gate_proj(x)) × up_proj(x) → down_proj，intermediate_size = 1408：</p>
+    <svg id="swigluSvg" width="100%" height="200" viewBox="0 0 700 200"></svg>
+    <div class="silu-demo" style="margin-top:12px">
+      <div>
+        <div class="label">SiLU(x) = x · σ(x) 函数图像</div>
+        <canvas id="siluCanvas" width="220" height="140"></canvas>
+      </div>
+      <div style="font-size:0.85rem;color:var(--fg2);max-width:300px">
+        <p><strong>为什么用 SwiGLU？</strong></p>
+        <p>相比 ReLU，SiLU 平滑且非单调，门控机制让网络可以选择性地传递信息，实验证明效果更好。</p>
+      </div>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：model/model_minimind.py:216-229
+      </div>
+      <pre class="source-content"><code>class FeedForward(nn.Module):
+    def __init__(self, config):
+        # intermediate_size = round_up(hidden_size * 8/3, 64) = 1408
+        self.gate_proj = nn.Linear(512, 1408, bias=False)
+        self.down_proj = nn.Linear(1408, 512, bias=False)
+        self.up_proj   = nn.Linear(512, 1408, bias=False)
+        self.act_fn = silu
+
+    def forward(self, x):
+        return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>MoE 路由动画</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">MoE 模式下，每个 token 由门控网络选择 top-2 专家处理（共 4 个路由专家 + 1 个共享专家）：</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn primary" id="moeRunBtn">▶ 运行路由</button>
+      <button class="btn" id="moeResetBtn">重置</button>
+    </div>
+    <canvas id="moeCanvas" width="680" height="320"></canvas>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：model/model_minimind.py:232-349
+      </div>
+      <pre class="source-content"><code>class MoEGate(nn.Module):
+    def forward(self, hidden_states):
+        logits = F.linear(hidden_states, self.weight)
+        scores = logits.softmax(dim=-1)
+        topk_weight, topk_idx = torch.topk(scores, k=2)  # top-2
+        # 归一化权重
+        topk_weight = topk_weight / topk_weight.sum(dim=-1, keepdim=True)
+        return topk_idx, topk_weight, aux_loss
+
+class MOEFeedForward(nn.Module):
+    def forward(self, x):
+        topk_idx, topk_weight, aux_loss = self.gate(x)
+        # 每个 token 路由到 top-2 专家
+        for i, expert in enumerate(self.experts):
+            y[topk_idx == i] = expert(x[topk_idx == i])
+        y = (y * topk_weight).sum(dim=1)
+        # 加上共享专家
+        y = y + self.shared_experts(identity)</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>负载均衡</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">辅助损失 (aux_loss) 鼓励所有专家被均匀使用，防止"专家塌缩"：</p>
+    <div class="viz-grid">
+      <div>
+        <div class="label">各专家收到的 token 数</div>
+        <div id="expertLoadChart" style="height:140px;display:flex;align-items:flex-end;gap:8px;padding-bottom:20px;position:relative"></div>
+      </div>
+      <div>
+        <div class="label">aux_loss = α × Σ(fᵢ × Pᵢ)</div>
+        <div id="auxLossDisplay" style="font-size:1.5rem;color:var(--accent);font-family:monospace;padding:20px 0">0.0000</div>
+        <p style="font-size:0.85rem;color:var(--fg2)">α=0.01, fᵢ=专家i实际频率, Pᵢ=专家i平均门控概率。<br>当所有专家均衡时，aux_loss 最小。</p>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ==================== SECTION 6: 训练流程 ==================== -->
+<div class="section" id="sec5">
+  <h2>6. 训练流程</h2>
+  <p class="desc">MiniMind 的完整训练流程包含预训练、监督微调 (SFT)、对齐训练 (DPO/PPO/GRPO) 等阶段，每个阶段产出独立的权重文件。</p>
+
+  <div class="card">
+    <h3>Pipeline 流程图</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">数据从左到右依次流经各训练阶段，点击各阶段查看详情：</p>
+    <svg id="pipelineSvg" width="100%" height="120" viewBox="0 0 800 120"></svg>
+    <div id="pipelineInfo" style="margin-top:10px;font-size:0.85rem;color:var(--fg2);min-height:40px"></div>
+  </div>
+
+  <div class="card">
+    <h3>SFT 损失掩码</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">SFT 只对 assistant 回复计算损失，system/user 部分标记为 labels=-100（被 CrossEntropy 忽略）：</p>
+    <div id="sftMaskDemo" style="padding:10px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);overflow-x:auto"></div>
+    <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.85rem">
+      <span><span class="token-box" style="background:var(--bg3);color:var(--fg3)">灰色</span> = labels=-100（不计算损失）</span>
+      <span><span class="token-box" style="background:var(--green);color:#fff">绿色</span> = 计算损失的 token</span>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：dataset/lm_dataset.py:74-90 (generate_labels)
+      </div>
+      <pre class="source-content"><code>def generate_labels(self, input_ids):
+    labels = [-100] * len(input_ids)
+    i = 0
+    while i < len(input_ids):
+        if input_ids[i:i+len(self.bos_id)] == self.bos_id:
+            start = i + len(self.bos_id)
+            end = start
+            while end < len(input_ids):
+                if input_ids[end:end+len(self.eos_id)] == self.eos_id:
+                    break
+                end += 1
+            for j in range(start, min(end+len(self.eos_id), self.max_length)):
+                labels[j] = input_ids[j]  # 只有 assistant 回复被标记
+            i = end + len(self.eos_id)
+        else:
+            i += 1
+    return labels</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>DPO 对比训练</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">DPO 通过对比 chosen（好回复）和 rejected（差回复）的对数概率比来优化策略模型：</p>
+    <div class="viz-grid">
+      <div>
+        <div class="label" style="color:var(--green)">✓ Chosen（好回复）</div>
+        <div style="padding:8px;background:var(--bg);border:2px solid var(--green);border-radius:var(--radius);font-size:0.85rem;min-height:60px" id="dpoChosen">中国的首都是北京，位于华北平原北部。</div>
+      </div>
+      <div>
+        <div class="label" style="color:var(--red)">✗ Rejected（差回复）</div>
+        <div style="padding:8px;background:var(--bg);border:2px solid var(--red);border-radius:var(--radius);font-size:0.85rem;min-height:60px" id="dpoRejected">中国的首都是上海，是最大的城市。</div>
+      </div>
+    </div>
+    <div style="margin-top:12px">
+      <div class="label">DPO Loss = -log σ(β × (log π(chosen)/π₀(chosen) - log π(rejected)/π₀(rejected)))</div>
+      <div style="margin-top:6px">
+        <span class="label">β = </span>
+        <input type="range" id="betaSlider" min="0.01" max="0.5" step="0.01" value="0.1" style="width:200px;vertical-align:middle">
+        <span id="betaVal" class="value">0.1</span>
+      </div>
+      <canvas id="dpoCanvas" width="400" height="160" style="margin-top:8px"></canvas>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：trainer/train_dpo.py:33-51
+      </div>
+      <pre class="source-content"><code>def dpo_loss(ref_log_probs, policy_log_probs, mask, beta):
+    # 序列级平均对数概率
+    ref_log_probs = (ref_log_probs * mask).sum(dim=1) / seq_lengths
+    policy_log_probs = (policy_log_probs * mask).sum(dim=1) / seq_lengths
+    # 分开 chosen / rejected
+    pi_logratios = chosen_policy - reject_policy
+    ref_logratios = chosen_ref - reject_ref
+    logits = pi_logratios - ref_logratios
+    loss = -F.logsigmoid(beta * logits)
+    return loss.mean()</code></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>学习率调度</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">MiniMind 使用余弦退火策略：lr(t) = lr₀ × (0.1 + 0.45 × (1 + cos(π·t/T)))。不同阶段使用不同初始学习率：</p>
+    <canvas id="lrCanvas" width="500" height="200"></canvas>
+    <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:0.85rem">
+      <span style="color:var(--blue)">■ Pretrain: 5e-4</span>
+      <span style="color:var(--green)">■ SFT: 1e-6</span>
+      <span style="color:var(--orange)">■ DPO: 4e-8</span>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：trainer/trainer_utils.py:48-49
+      </div>
+      <pre class="source-content"><code>def get_lr(current_step, total_steps, lr):
+    return lr * (0.1 + 0.45 * (1 + math.cos(math.pi * current_step / total_steps)))</code></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 7: 完整前向传播 ==================== -->
+<div class="section" id="sec6">
+  <h2>7. 完整前向传播</h2>
+  <p class="desc">一次完整的前向传播：Input IDs → Embedding → 8 × TransformerBlock(RMSNorm → Attention → Add → RMSNorm → FFN → Add) → RMSNorm → LM Head → Logits</p>
+
+  <div class="card">
+    <h3>逐步穿越动画</h3>
+    <p style="margin-bottom:10px;font-size:0.9rem;color:var(--fg2)">点击按钮逐步执行前向传播，观察数据在模型中的流动和 tensor 形状变化：</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="btn" id="fwdPrev">◀ 上一步</button>
+      <button class="btn primary" id="fwdNext">下一步 ▶</button>
+      <button class="btn" id="fwdAuto">▶ 自动播放</button>
+      <button class="btn" id="fwdReset">重置</button>
+    </div>
+    <div class="step-indicator" id="fwdSteps"></div>
+    <div class="viz-grid">
+      <div>
+        <svg id="fwdSvg" width="100%" height="520" viewBox="0 0 400 520"></svg>
+      </div>
+      <div>
+        <div class="label">当前步骤</div>
+        <div id="fwdStepName" style="font-size:1.1rem;font-weight:600;margin-bottom:8px;color:var(--accent)">—</div>
+        <div class="label">Tensor Shape</div>
+        <div id="fwdShape" class="shape-badge" style="margin-bottom:12px">—</div>
+        <div class="label">说明</div>
+        <div id="fwdDesc" style="font-size:0.9rem;color:var(--fg2);min-height:80px">点击"下一步"开始</div>
+        <div class="label" style="margin-top:12px">Top-10 预测 (最终输出)</div>
+        <div id="fwdTopk" style="min-height:100px"></div>
+      </div>
+    </div>
+    <div class="source-panel">
+      <div class="source-toggle" onclick="this.classList.toggle('open');this.nextElementSibling.classList.toggle('open')">
+        <span class="arrow">▶</span> 对照源码：model/model_minimind.py:392-468
+      </div>
+      <pre class="source-content"><code>class MiniMindModel(nn.Module):
+    def forward(self, input_ids, ...):
+        hidden_states = self.dropout(self.embed_tokens(input_ids))  # [B,S] → [B,S,512]
+        position_embeddings = (freqs_cos[...], freqs_sin[...])
+        for layer in self.layers:           # 8 × MiniMindBlock
+            hidden_states, _ = layer(hidden_states, position_embeddings, ...)
+        hidden_states = self.norm(hidden_states)     # RMSNorm
+        return hidden_states
+
+class MiniMindForCausalLM(PreTrainedModel):
+    def forward(self, input_ids, labels=None, ...):
+        hidden_states, _, aux_loss = self.model(input_ids, ...)
+        logits = self.lm_head(hidden_states)         # [B,S,512] → [B,S,6400]
+        if labels is not None:
+            loss = cross_entropy(logits[:-1], labels[1:], ignore_index=-100)
+        return CausalLMOutputWithPast(loss=loss, logits=logits, ...)</code></pre>
+    </div>
+  </div>
+</div>
+
+</div><!-- end container -->
+<script>
+// roundRect polyfill for older browsers
+if (typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    r = typeof r === 'number' ? r : (r && r[0]) || 0;
+    this.moveTo(x + r, y);
+    this.arcTo(x + w, y, x + w, y + h, r);
+    this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r);
+    this.arcTo(x, y, x + w, y, r);
+    this.closePath();
+  };
+}
+(function() {
+'use strict';
+
+// ===== MINIMIND CONSTANTS =====
+const MM = {
+  vocab_size: 6400, hidden_size: 512, num_heads: 8, num_kv_heads: 2,
+  head_dim: 64, num_layers: 8, intermediate_size: 1408, rope_base: 1e6,
+  max_pos: 32768, rms_norm_eps: 1e-5, n_routed_experts: 4,
+  num_experts_per_tok: 2, n_shared_experts: 1, aux_loss_alpha: 0.01,
+  yarn_factor: 16, yarn_orig_max: 2048, yarn_beta_fast: 32, yarn_beta_slow: 1
+};
+
+// ===== UTILS =====
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const el = (tag, attrs, ...children) => {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => {
+    if (k === 'style' && typeof v === 'object') Object.assign(e.style, v);
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  });
+  children.forEach(c => { if (typeof c === 'string') e.appendChild(document.createTextNode(c)); else if (c) e.appendChild(c); });
+  return e;
+};
+
+function softmax(arr, temp) {
+  temp = temp || 1;
+  const max = Math.max(...arr);
+  const exps = arr.map(x => Math.exp((x - max) / temp));
+  const sum = exps.reduce((a,b) => a + b, 0);
+  return exps.map(x => x / sum);
+}
+
+function silu(x) { return x / (1 + Math.exp(-x)); }
+
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+const COLORS = ['#4f46e5','#7c3aed','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#8b5cf6','#14b8a6','#f97316'];
+function tokenColor(i) { return COLORS[i % COLORS.length]; }
+
+// ===== THEME =====
+const Theme = {
+  init() {
+    const saved = localStorage.getItem('mm-theme');
+    if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+    this.updateBtn();
+    $('#themeBtn').addEventListener('click', () => this.toggle());
+  },
+  toggle() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.documentElement.setAttribute('data-theme', isDark ? '' : 'dark');
+    localStorage.setItem('mm-theme', isDark ? 'light' : 'dark');
+    this.updateBtn();
+    EventBus.emit('themeChange');
+  },
+  updateBtn() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    $('#themeBtn').textContent = isDark ? '☀️' : '🌙';
+  },
+  isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+};
+
+// ===== EVENT BUS =====
+const EventBus = {
+  _events: {},
+  on(e, fn) { (this._events[e] = this._events[e] || []).push(fn); },
+  emit(e, ...args) { (this._events[e] || []).forEach(fn => fn(...args)); }
+};
+
+// ===== TABS =====
+const Tabs = {
+  initialized: new Set(),
+  sections: [null, null, null, null, null, null, null],
+  init() {
+    $$('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => this.switchTo(parseInt(btn.dataset.tab)));
+    });
+    this.switchTo(0);
+  },
+  switchTo(idx) {
+    $$('.tab-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.tab) === idx));
+    $$('.section').forEach((s, i) => s.classList.toggle('active', i === idx));
+    if (!this.initialized.has(idx)) {
+      this.initialized.add(idx);
+      const inits = [TokenizationViz, EmbeddingViz, AttentionViz, RoPEViz, FFNMoEViz, TrainingViz, ForwardPassViz];
+      if (inits[idx]) inits[idx].init();
+    }
+  }
+};
+
+// ===== SECTION 1: TOKENIZATION =====
+const TokenizationViz = {
+  init() {
+    this.initBPE();
+    this.initRealtime();
+  },
+  initBPE() {
+    const text = "学习人工智能";
+    // Simulate BPE: start from bytes, progressively merge
+    const steps = [];
+    // Step 0: individual characters
+    let tokens = text.split('');
+    steps.push(tokens.slice());
+    // Simulate merges
+    const merges = [
+      [['人','工'], '人工'], [['智','能'], '智能'], [['人工','智','能'], null],
+      [['人工','智能'], '人工智能'], [['学','习'], '学习'], [['学习','人工智能'], null]
+    ];
+    for (const [pair, result] of merges) {
+      if (!result) continue;
+      const newTokens = [];
+      let i = 0;
+      while (i < tokens.length) {
+        if (i < tokens.length - 1 && tokens[i] === pair[0] && tokens[i+1] === pair[1]) {
+          newTokens.push(result);
+          i += 2;
+        } else {
+          newTokens.push(tokens[i]);
+          i++;
+        }
+      }
+      tokens = newTokens;
+      steps.push(tokens.slice());
+    }
+
+    let currentStep = 0;
+    const area = $('#bpeArea');
+    const status = $('#bpeStatus');
+    let autoTimer = null;
+
+    const render = () => {
+      area.innerHTML = '';
+      steps[currentStep].forEach((t, i) => {
+        const span = el('span', {
+          class: 'token-box',
+          style: {background: tokenColor(i), color: '#fff', fontSize: '1rem', padding: '6px 12px', cursor: 'default'}
+        }, t);
+        area.appendChild(span);
+      });
+      status.textContent = `步骤 ${currentStep}/${steps.length - 1}` +
+        (currentStep > 0 ? ` — 合并后 ${steps[currentStep].length} 个 token` : ` — ${steps[0].length} 个字符`);
+    };
+
+    $('#bpeNext').onclick = () => { if (currentStep < steps.length - 1) { currentStep++; render(); } };
+    $('#bpePrev').onclick = () => { if (currentStep > 0) { currentStep--; render(); } };
+    $('#bpeReset').onclick = () => { currentStep = 0; render(); if (autoTimer) { clearInterval(autoTimer); autoTimer = null; $('#bpeAuto').textContent = '▶ 自动播放'; } };
+    $('#bpeAuto').onclick = () => {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; $('#bpeAuto').textContent = '▶ 自动播放'; return; }
+      $('#bpeAuto').textContent = '⏸ 暂停';
+      autoTimer = setInterval(() => {
+        if (currentStep < steps.length - 1) { currentStep++; render(); }
+        else { clearInterval(autoTimer); autoTimer = null; $('#bpeAuto').textContent = '▶ 自动播放'; }
+      }, 800);
+    };
+    render();
+  },
+
+  initRealtime() {
+    // Simple token vocabulary subset for demo
+    const VOCAB = {
+      '你': 340, '好': 590, '我': 280, '是': 460, '的': 350, '了': 370, '不': 410,
+      '在': 430, '有': 450, '这': 470, '人': 310, '大': 480, '中': 300, '上': 490,
+      '一': 260, '个': 500, '到': 510, '来': 520, '时': 530, '会': 540, '说': 550,
+      '他': 560, '她': 570, '地': 580, '出': 600, '就': 610, '也': 620, '和': 630,
+      '对': 640, '能': 650, '都': 660, '学': 670, '习': 680, '工': 690, '智': 700,
+      '机': 710, '器': 720, '语': 730, '言': 740, '模': 750, '型': 760,
+      '世': 770, '界': 780, '想': 790, '要': 800, '生': 810, '活': 820,
+      '做': 830, '可': 840, '以': 850, '吗': 860, '什': 870, '么': 880,
+      '怎': 890, '样': 900, '很': 910, '多': 920, '最': 930, '小': 940,
+      '天': 950, '年': 960, '月': 970, '日': 980, '。': 16, '，': 14, '？': 33, '！': 3,
+      '、': 100, '"': 4, '"': 101, '（': 10, '）': 11, '\n': 201,
+      'Mini': 1100, 'Mind': 1200, 'mind': 1201, 'Hello': 1300, 'World': 1400,
+      'the': 400, 'is': 461, 'a': 66, 'of': 402, 'to': 403, 'and': 501,
+      'in': 404, 'that': 405, 'I': 44, 'you': 406, 'it': 407,
+      ' ': 220, '.': 16, ',': 14, '?': 33, '!': 3,
+    };
+    // Compound tokens
+    const COMPOUND = {
+      '你好': 1500, '什么': 1501, '怎样': 1502, '可以': 1503,
+      '人工': 1504, '智能': 1505, '学习': 1506, '语言': 1507,
+      '模型': 1508, '世界': 1509, '生活': 1510, 'MiniMind': 1511,
+      '人工智能': 1600,
+    };
+
+    const tokenize = (text) => {
+      const tokens = [];
+      let i = 0;
+      while (i < text.length) {
+        let matched = false;
+        // Try longest match first (up to 6 chars)
+        for (let len = Math.min(8, text.length - i); len > 0; len--) {
+          const sub = text.substring(i, i + len);
+          if (COMPOUND[sub] !== undefined) {
+            tokens.push({text: sub, id: COMPOUND[sub]});
+            i += len; matched = true; break;
+          }
+          if (len <= 4 && VOCAB[sub] !== undefined) {
+            tokens.push({text: sub, id: VOCAB[sub]});
+            i += len; matched = true; break;
+          }
+        }
+        if (!matched) {
+          // Unknown char → use char code as fallback id
+          tokens.push({text: text[i], id: text.charCodeAt(i) % 256 + 3});
+          i++;
+        }
+      }
+      return tokens;
+    };
+
+    const display = $('#tokenDisplay');
+    const idsEl = $('#tokenIds');
+    const input = $('#tokenInput');
+
+    const update = () => {
+      const tokens = tokenize(input.value);
+      display.innerHTML = '';
+      tokens.forEach((t, i) => {
+        display.appendChild(el('span', {
+          class: 'token-box',
+          style: {background: tokenColor(i), color: '#fff'},
+          title: `ID: ${t.id}`
+        }, t.text === ' ' ? '␣' : t.text === '\n' ? '↵' : t.text));
+      });
+      idsEl.textContent = '[' + tokens.map(t => t.id).join(', ') + ']';
+    };
+    input.addEventListener('input', update);
+    update();
+  }
+};
+
+// ===== SECTION 2: EMBEDDING =====
+const EmbeddingViz = {
+  init() {
+    this.initMatrix();
+    this.initWeightTying();
+  },
+  initMatrix() {
+    const rng = mulberry32(42);
+    // Generate fake embedding rows for demo tokens
+    const demoTokens = [
+      {text: '你', id: 340}, {text: '好', id: 590}, {text: '学', id: 670},
+      {text: '习', id: 680}, {text: 'AI', id: 1100}, {text: '。', id: 16}
+    ];
+    const embData = {};
+    demoTokens.forEach(t => {
+      embData[t.id] = Array.from({length: MM.hidden_size}, () => (rng() - 0.5) * 2);
+    });
+
+    // Token buttons
+    const btnContainer = $('#embTokenBtns');
+    demoTokens.forEach((t, idx) => {
+      const btn = el('button', {
+        class: 'btn' + (idx === 0 ? ' primary' : ''),
+        onclick: () => selectToken(t, idx)
+      }, `"${t.text}" (${t.id})`);
+      btnContainer.appendChild(btn);
+    });
+
+    let selectedIdx = 0;
+    const selectToken = (t, idx) => {
+      selectedIdx = idx;
+      btnContainer.querySelectorAll('.btn').forEach((b, i) => {
+        b.classList.toggle('primary', i === idx);
+      });
+      renderMatrix(t);
+      renderBar(t);
+    };
+
+    const renderMatrix = (token) => {
+      const container = $('#embMatrix');
+      const table = el('table', {class: 'matrix-table'});
+      // Header
+      const headerRow = el('tr');
+      headerRow.appendChild(el('th', {}, 'ID'));
+      for (let j = 0; j < 8; j++) headerRow.appendChild(el('th', {}, `d${j}`));
+      headerRow.appendChild(el('th', {}, '...'));
+      for (let j = 508; j < 512; j++) headerRow.appendChild(el('th', {}, `d${j}`));
+      table.appendChild(headerRow);
+
+      // Show a few rows around the selected token
+      const displayIds = [];
+      const tid = token.id;
+      for (let r = Math.max(0, tid - 2); r <= Math.min(MM.vocab_size - 1, tid + 2); r++) {
+        displayIds.push(r);
+      }
+
+      displayIds.forEach(id => {
+        const row = el('tr');
+        const isTarget = id === tid;
+        const idCell = el('td', {}, String(id));
+        if (isTarget) idCell.classList.add('highlight');
+        row.appendChild(idCell);
+        const vec = embData[id] || Array.from({length: MM.hidden_size}, () => {
+          const r2 = mulberry32(id * 512);
+          return Array.from({length: MM.hidden_size}, () => (r2() - 0.5) * 2);
+        });
+        const vals = embData[id] || (() => {
+          const r2 = mulberry32(id * 512 + 7);
+          return Array.from({length: MM.hidden_size}, () => (r2() - 0.5) * 2);
+        })();
+        for (let j = 0; j < 8; j++) {
+          const cell = el('td', {}, vals[j].toFixed(2));
+          if (isTarget) cell.classList.add('highlight');
+          row.appendChild(cell);
+        }
+        const dots = el('td', {}, '...');
+        if (isTarget) dots.classList.add('highlight');
+        row.appendChild(dots);
+        for (let j = 508; j < 512; j++) {
+          const cell = el('td', {}, vals[j].toFixed(2));
+          if (isTarget) cell.classList.add('highlight');
+          row.appendChild(cell);
+        }
+        table.appendChild(row);
+      });
+
+      container.innerHTML = '';
+      container.appendChild(table);
+    };
+
+    const renderBar = (token) => {
+      const container = $('#embBarChart');
+      container.innerHTML = '';
+      const vec = embData[token.id];
+      const show = 64; // Show first 64 dims
+      const maxVal = Math.max(...vec.slice(0, show).map(Math.abs));
+      for (let i = 0; i < show; i++) {
+        const v = vec[i];
+        const h = Math.abs(v) / maxVal * 80;
+        const bar = el('div', {
+          style: {
+            flex: '1', minWidth: '3px', height: h + 'px',
+            background: v >= 0 ? 'var(--accent)' : 'var(--red)',
+            borderRadius: '1px 1px 0 0', transition: 'height 0.4s ease'
+          },
+          title: `d${i}: ${v.toFixed(4)}`
+        });
+        container.appendChild(bar);
+      }
+    };
+
+    // Init with first token
+    selectToken(demoTokens[0], 0);
+  },
+
+  initWeightTying() {
+    const svg = $('#weightTyingSvg');
+    const isDark = () => Theme.isDark();
+    const draw = () => {
+      const fg = isDark() ? '#e2e8f0' : '#1a1a2e';
+      const accent = isDark() ? '#818cf8' : '#4f46e5';
+      const green = isDark() ? '#34d399' : '#10b981';
+      svg.innerHTML = `
+        <rect x="20" y="30" width="150" height="50" rx="8" fill="none" stroke="${accent}" stroke-width="2"/>
+        <text x="95" y="60" text-anchor="middle" fill="${fg}" font-size="14">Embedding</text>
+        <text x="95" y="100" text-anchor="middle" fill="${fg}" font-size="11">[6400 × 512]</text>
+        <rect x="430" y="30" width="150" height="50" rx="8" fill="none" stroke="${accent}" stroke-width="2"/>
+        <text x="505" y="60" text-anchor="middle" fill="${fg}" font-size="14">LM Head</text>
+        <text x="505" y="100" text-anchor="middle" fill="${fg}" font-size="11">[512 × 6400]</text>
+        <line x1="170" y1="55" x2="430" y2="55" stroke="${green}" stroke-width="2" stroke-dasharray="8,4"/>
+        <text x="300" y="48" text-anchor="middle" fill="${green}" font-size="12" font-weight="bold">权重共享 (Weight Tying)</text>
+        <text x="300" y="140" text-anchor="middle" fill="${fg}" font-size="11" opacity="0.7">embed_tokens.weight = lm_head.weight → 节省 512×6400 = 3.3M 参数</text>
+      `;
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  }
+};
+
+// ===== SECTION 3: ATTENTION =====
+const AttentionViz = {
+  init() {
+    this.initQKV();
+    this.initHeatmap();
+    this.initKVCache();
+  },
+  initQKV() {
+    const svg = $('#qkvSvg');
+    const draw = () => {
+      const fg = Theme.isDark() ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = Theme.isDark() ? '#94a3b8' : '#555';
+      const accent = Theme.isDark() ? '#818cf8' : '#4f46e5';
+      const green = Theme.isDark() ? '#34d399' : '#10b981';
+      const orange = Theme.isDark() ? '#fbbf24' : '#f59e0b';
+      const blue = Theme.isDark() ? '#60a5fa' : '#3b82f6';
+      const red = Theme.isDark() ? '#f87171' : '#ef4444';
+      svg.innerHTML = `
+        <rect x="10" y="20" width="120" height="40" rx="6" fill="none" stroke="${fg2}" stroke-width="1.5"/>
+        <text x="70" y="45" text-anchor="middle" fill="${fg}" font-size="12">Input [B,S,512]</text>
+        <line x1="130" y1="40" x2="180" y2="40" stroke="${fg2}" stroke-width="1" marker-end="url(#arrowGray)"/>
+        <defs><marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>
+        <!-- Q proj -->
+        <rect x="185" y="5" width="100" height="30" rx="5" fill="${blue}" opacity="0.15" stroke="${blue}" stroke-width="1.5"/>
+        <text x="235" y="24" text-anchor="middle" fill="${blue}" font-size="11" font-weight="bold">Q Proj</text>
+        <text x="235" y="52" text-anchor="middle" fill="${fg2}" font-size="10">512→512</text>
+        <!-- K proj -->
+        <rect x="185" y="62" width="100" height="30" rx="5" fill="${green}" opacity="0.15" stroke="${green}" stroke-width="1.5"/>
+        <text x="235" y="81" text-anchor="middle" fill="${green}" font-size="11" font-weight="bold">K Proj</text>
+        <text x="235" y="108" text-anchor="middle" fill="${fg2}" font-size="10">512→128</text>
+        <!-- V proj -->
+        <rect x="185" y="118" width="100" height="30" rx="5" fill="${orange}" opacity="0.15" stroke="${orange}" stroke-width="1.5"/>
+        <text x="235" y="137" text-anchor="middle" fill="${orange}" font-size="11" font-weight="bold">V Proj</text>
+        <text x="235" y="163" text-anchor="middle" fill="${fg2}" font-size="10">512→128</text>
+        <!-- Arrows to split -->
+        <line x1="285" y1="20" x2="340" y2="20" stroke="${blue}" stroke-width="1"/>
+        <line x1="285" y1="77" x2="340" y2="77" stroke="${green}" stroke-width="1"/>
+        <line x1="285" y1="133" x2="340" y2="133" stroke="${orange}" stroke-width="1"/>
+        <!-- Q heads -->
+        <text x="380" y="12" text-anchor="middle" fill="${fg2}" font-size="9">8 个 Q 头</text>
+        ${[0,1,2,3,4,5,6,7].map(i => `<rect x="${345+i*22}" y="16" width="18" height="14" rx="2" fill="${blue}" opacity="${0.4+i*0.07}"/>`).join('')}
+        <!-- KV heads -->
+        <text x="380" y="69" text-anchor="middle" fill="${fg2}" font-size="9">2 个 KV 头</text>
+        <rect x="345" y="73" width="40" height="14" rx="2" fill="${green}" opacity="0.6"/>
+        <rect x="390" y="73" width="40" height="14" rx="2" fill="${green}" opacity="0.8"/>
+        <rect x="345" y="129" width="40" height="14" rx="2" fill="${orange}" opacity="0.6"/>
+        <rect x="390" y="129" width="40" height="14" rx="2" fill="${orange}" opacity="0.8"/>
+        <!-- GQA grouping -->
+        <text x="530" y="12" text-anchor="middle" fill="${fg}" font-size="11" font-weight="bold">GQA 分组</text>
+        <!-- Group 1 -->
+        <rect x="470" y="20" width="120" height="50" rx="6" fill="${green}" opacity="0.08" stroke="${green}" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="530" y="36" text-anchor="middle" fill="${fg2}" font-size="9">KV Head 0 → Q Head 0,1,2,3</text>
+        ${[0,1,2,3].map(i => `<rect x="${485+i*26}" y="42" width="22" height="12" rx="2" fill="${blue}" opacity="0.7"/>`).join('')}
+        <text x="530" y="64" text-anchor="middle" fill="${green}" font-size="9">repeat_kv ×4</text>
+        <!-- Group 2 -->
+        <rect x="470" y="78" width="120" height="50" rx="6" fill="${orange}" opacity="0.08" stroke="${orange}" stroke-width="1" stroke-dasharray="4,2"/>
+        <text x="530" y="94" text-anchor="middle" fill="${fg2}" font-size="9">KV Head 1 → Q Head 4,5,6,7</text>
+        ${[0,1,2,3].map(i => `<rect x="${485+i*26}" y="100" width="22" height="12" rx="2" fill="${blue}" opacity="0.7"/>`).join('')}
+        <text x="530" y="122" text-anchor="middle" fill="${orange}" font-size="9">repeat_kv ×4</text>
+        <!-- Output -->
+        <rect x="470" y="145" width="120" height="30" rx="6" fill="none" stroke="${accent}" stroke-width="1.5"/>
+        <text x="530" y="164" text-anchor="middle" fill="${accent}" font-size="11">scores @ V → O Proj</text>
+        <!-- Formula -->
+        <text x="300" y="200" text-anchor="middle" fill="${fg}" font-size="12">Attention(Q,K,V) = softmax(QK<tspan baseline-shift="super" font-size="9">T</tspan>/√d<tspan baseline-shift="sub" font-size="9">k</tspan> + mask) × V</text>
+        <text x="300" y="220" text-anchor="middle" fill="${fg2}" font-size="10">d_k = head_dim = ${MM.head_dim}，√d_k = ${Math.sqrt(MM.head_dim).toFixed(1)}</text>
+        <text x="300" y="245" text-anchor="middle" fill="${fg2}" font-size="10">GQA: ${MM.num_heads} Q heads 共享 ${MM.num_kv_heads} KV heads → 减少 KV 缓存 ${MM.num_heads/MM.num_kv_heads}×</text>
+      `;
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  },
+
+  initHeatmap() {
+    const canvas = $('#attnCanvas');
+    const ctx = canvas.getContext('2d');
+    const tokens = ['我', '喜', '欢', '你'];
+    const slider = $('#tempSlider');
+    const valEl = $('#tempVal');
+
+    // Show token labels
+    const tokenDiv = $('#attnTokens');
+    tokens.forEach((t, i) => {
+      tokenDiv.appendChild(el('span', {class: 'token-box', style: {background: tokenColor(i), color: '#fff'}}, t));
+    });
+
+    const drawHeatmap = () => {
+      const temp = parseFloat(slider.value);
+      valEl.textContent = temp.toFixed(1);
+      const n = tokens.length;
+      const rng = mulberry32(123);
+      // Generate random QK scores
+      const raw = [];
+      for (let i = 0; i < n; i++) {
+        raw[i] = [];
+        for (let j = 0; j < n; j++) {
+          raw[i][j] = (rng() - 0.3) * 3;
+        }
+      }
+      // Apply causal mask and softmax
+      const attn = [];
+      for (let i = 0; i < n; i++) {
+        const row = [];
+        for (let j = 0; j < n; j++) {
+          row.push(j <= i ? raw[i][j] : -1e9);
+        }
+        attn.push(softmax(row, temp));
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      const w = 300, h = 300;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const pad = 50, cellSize = (w - pad - 10) / n;
+      const isDark = Theme.isDark();
+      ctx.fillStyle = isDark ? '#1e293b' : '#f8f8f8';
+      ctx.fillRect(0, 0, w, h);
+
+      // Labels
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = isDark ? '#e2e8f0' : '#1a1a2e';
+      ctx.textAlign = 'center';
+      for (let j = 0; j < n; j++) {
+        ctx.fillText(tokens[j], pad + cellSize * j + cellSize / 2, pad - 10);
+        ctx.fillText(tokens[j], pad - 20, pad + cellSize * j + cellSize / 2 + 5);
+      }
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = isDark ? '#94a3b8' : '#888';
+      ctx.fillText('Key →', pad + cellSize * n / 2, 15);
+      ctx.save(); ctx.translate(10, pad + cellSize * n / 2);
+      ctx.rotate(-Math.PI / 2); ctx.fillText('Query →', 0, 0); ctx.restore();
+
+      // Cells
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const v = attn[i][j];
+          const x = pad + j * cellSize, y = pad + i * cellSize;
+          if (j > i) {
+            // Masked
+            ctx.fillStyle = isDark ? '#334155' : '#e5e7eb';
+            ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+            ctx.fillStyle = isDark ? '#64748b' : '#aaa';
+            ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('-∞', x + cellSize / 2, y + cellSize / 2 + 3);
+          } else {
+            const intensity = Math.min(v * 1.2, 1);
+            const r = isDark ? Math.round(129 + 126 * (1 - intensity)) : Math.round(79 * intensity);
+            const g = isDark ? Math.round(140 + 115 * (1 - intensity)) : Math.round(70 * intensity);
+            const b = isDark ? Math.round(248) : Math.round(229 * intensity);
+            ctx.fillStyle = isDark ? `rgb(${r},${g},${b})` : `rgba(79,70,229,${intensity})`;
+            ctx.fillRect(x, y, cellSize - 1, cellSize - 1);
+            ctx.fillStyle = intensity > 0.5 ? '#fff' : (isDark ? '#e2e8f0' : '#333');
+            ctx.font = '11px monospace'; ctx.textAlign = 'center';
+            ctx.fillText(v.toFixed(2), x + cellSize / 2, y + cellSize / 2 + 4);
+          }
+        }
+      }
+    };
+
+    slider.addEventListener('input', drawHeatmap);
+    EventBus.on('themeChange', drawHeatmap);
+    drawHeatmap();
+  },
+
+  initKVCache() {
+    const svg = $('#kvCacheSvg');
+    const draw = () => {
+      const fg = Theme.isDark() ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = Theme.isDark() ? '#94a3b8' : '#555';
+      const green = Theme.isDark() ? '#34d399' : '#10b981';
+      const blue = Theme.isDark() ? '#60a5fa' : '#3b82f6';
+      const orange = Theme.isDark() ? '#fbbf24' : '#f59e0b';
+      svg.innerHTML = `
+        <defs><marker id="arrKV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>
+        <text x="20" y="20" fill="${fg}" font-size="12" font-weight="bold">推理阶段 KV Cache</text>
+        <!-- Cached KV -->
+        <rect x="20" y="35" width="200" height="40" rx="6" fill="${green}" opacity="0.12" stroke="${green}" stroke-width="1.5" stroke-dasharray="4,2"/>
+        <text x="120" y="50" text-anchor="middle" fill="${green}" font-size="10">Cached K: [B, t-1, 2, 64]</text>
+        <text x="120" y="65" text-anchor="middle" fill="${green}" font-size="10">Cached V: [B, t-1, 2, 64]</text>
+        <!-- New token -->
+        <rect x="240" y="35" width="100" height="40" rx="6" fill="${blue}" opacity="0.15" stroke="${blue}" stroke-width="1.5"/>
+        <text x="290" y="50" text-anchor="middle" fill="${blue}" font-size="10">New Q: [B,1,8,64]</text>
+        <text x="290" y="65" text-anchor="middle" fill="${blue}" font-size="10">New K,V: [B,1,2,64]</text>
+        <!-- Concat arrow -->
+        <line x1="220" y1="80" x2="260" y2="80" stroke="${fg2}" stroke-width="1" marker-end="url(#arrKV)"/>
+        <text x="240" y="95" text-anchor="middle" fill="${fg2}" font-size="9">concat</text>
+        <!-- Result -->
+        <rect x="380" y="35" width="180" height="40" rx="6" fill="${orange}" opacity="0.12" stroke="${orange}" stroke-width="1.5"/>
+        <text x="470" y="50" text-anchor="middle" fill="${orange}" font-size="10">K: [B, t, 2, 64] (更新缓存)</text>
+        <text x="470" y="65" text-anchor="middle" fill="${orange}" font-size="10">Attn: Q×K^T → [B,8,1,t]</text>
+        <line x1="340" y1="55" x2="380" y2="55" stroke="${fg2}" stroke-width="1" marker-end="url(#arrKV)"/>
+        <!-- Explanation -->
+        <text x="350" y="110" text-anchor="middle" fill="${fg2}" font-size="11">每步只计算 1 个新 token 的 Q/K/V，拼接到缓存 → O(1) 生成而非 O(t)</text>
+        <text x="350" y="128" text-anchor="middle" fill="${fg2}" font-size="10">GQA 缓存: 2 个 KV 头 vs MHA 的 8 个 → 节省 4× 显存</text>
+      `;
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  }
+};
+
+// ===== SECTION 4: RoPE =====
+const RoPEViz = {
+  init() {
+    this.initRotation();
+    this.initDotProduct();
+    this.initYaRN();
+  },
+  initRotation() {
+    const canvas1 = $('#ropeCanvas1');
+    const canvas2 = $('#ropeCanvas2');
+    const slider = $('#ropePosSlider');
+    const valEl = $('#ropePosVal');
+
+    const drawCanvas = (canvas, freqIdx) => {
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const size = 250;
+      canvas.width = size * dpr; canvas.height = size * dpr;
+      canvas.style.width = size + 'px'; canvas.style.height = size + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = Theme.isDark();
+      const bg = isDark ? '#1e293b' : '#f8f8f8';
+      const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = isDark ? '#475569' : '#ddd';
+      const accent = isDark ? '#818cf8' : '#4f46e5';
+      const green = isDark ? '#34d399' : '#10b981';
+
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, size, size);
+
+      const cx = size / 2, cy = size / 2, r = 90;
+
+      // Grid
+      ctx.strokeStyle = fg2; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(cx - r - 20, cy); ctx.lineTo(cx + r + 20, cy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy - r - 20); ctx.lineTo(cx, cy + r + 20); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+
+      const pos = parseInt(slider.value);
+      const freq = 1.0 / Math.pow(MM.rope_base, (2 * freqIdx) / MM.head_dim);
+      const theta = pos * freq;
+
+      // Draw trail for previous positions
+      ctx.globalAlpha = 0.15;
+      for (let p = 0; p < pos; p++) {
+        const th = p * freq;
+        const px = cx + r * Math.cos(th);
+        const py = cy - r * Math.sin(th);
+        ctx.fillStyle = accent;
+        ctx.beginPath(); ctx.arc(px, py, 2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Draw current vector
+      const vx = cx + r * Math.cos(theta);
+      const vy = cy - r * Math.sin(theta);
+      ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(vx, vy); ctx.stroke();
+
+      // Arrowhead
+      ctx.fillStyle = accent;
+      ctx.beginPath(); ctx.arc(vx, vy, 5, 0, Math.PI * 2); ctx.fill();
+
+      // Original vector (pos=0)
+      const ox = cx + r, oy = cy;
+      ctx.strokeStyle = green; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ox, oy); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Labels
+      ctx.fillStyle = fg; ctx.font = '11px monospace'; ctx.textAlign = 'left';
+      ctx.fillText(`freq[${freqIdx}] = ${freq.toExponential(2)}`, 8, 18);
+      ctx.fillText(`θ = pos × freq = ${theta.toFixed(3)}`, 8, 33);
+      ctx.fillText(`cos(θ) = ${Math.cos(theta).toFixed(3)}`, 8, size - 20);
+      ctx.fillText(`sin(θ) = ${Math.sin(theta).toFixed(3)}`, 8, size - 6);
+    };
+
+    const update = () => {
+      valEl.textContent = slider.value;
+      drawCanvas(canvas1, 0);  // High frequency channel
+      drawCanvas(canvas2, 31); // Low frequency channel
+    };
+
+    slider.addEventListener('input', update);
+    EventBus.on('themeChange', update);
+    update();
+  },
+
+  initDotProduct() {
+    const canvas = $('#dotProductCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = 500, h = 200;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = Theme.isDark();
+      ctx.fillStyle = isDark ? '#1e293b' : '#f8f8f8';
+      ctx.fillRect(0, 0, w, h);
+
+      const padL = 50, padR = 20, padT = 30, padB = 40;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      const maxDist = 64;
+
+      // Compute dot products for different distances
+      const dots = [];
+      for (let d = 0; d <= maxDist; d++) {
+        let dp = 0;
+        for (let i = 0; i < MM.head_dim / 2; i++) {
+          const freq = 1.0 / Math.pow(MM.rope_base, (2 * i) / MM.head_dim);
+          dp += Math.cos(d * freq);
+        }
+        dp /= (MM.head_dim / 2);
+        dots.push(dp);
+      }
+
+      const maxVal = Math.max(...dots.map(Math.abs));
+
+      // Axes
+      const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = isDark ? '#64748b' : '#aaa';
+      ctx.strokeStyle = fg2; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH); ctx.stroke();
+
+      // Y axis labels
+      ctx.fillStyle = fg; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+      ctx.fillText('1.0', padL - 5, padT + 5);
+      ctx.fillText('0', padL - 5, padT + plotH / 2 + 3);
+      ctx.fillText('-1.0', padL - 5, padT + plotH + 3);
+
+      // X axis labels
+      ctx.textAlign = 'center';
+      for (let d = 0; d <= maxDist; d += 16) {
+        const x = padL + (d / maxDist) * plotW;
+        ctx.fillText(String(d), x, padT + plotH + 15);
+      }
+      ctx.fillText('相对距离 |m-n|', padL + plotW / 2, h - 5);
+      ctx.save(); ctx.translate(12, padT + plotH / 2); ctx.rotate(-Math.PI / 2);
+      ctx.fillText('点积 (归一化)', 0, 0); ctx.restore();
+
+      // Zero line
+      ctx.strokeStyle = fg2; ctx.lineWidth = 0.5; ctx.setLineDash([3, 3]);
+      const zeroY = padT + plotH / 2;
+      ctx.beginPath(); ctx.moveTo(padL, zeroY); ctx.lineTo(padL + plotW, zeroY); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Curve
+      const accent = isDark ? '#818cf8' : '#4f46e5';
+      ctx.strokeStyle = accent; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let d = 0; d <= maxDist; d++) {
+        const x = padL + (d / maxDist) * plotW;
+        const y = padT + plotH / 2 - (dots[d] / maxVal) * (plotH / 2);
+        if (d === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Title
+      ctx.fillStyle = fg; ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('RoPE Q·K 点积随相对距离衰减（维度平均）', padL, 18);
+    };
+
+    EventBus.on('themeChange', draw);
+    draw();
+  },
+
+  initYaRN() {
+    const svg = $('#yarnSvg');
+    const draw = () => {
+      const fg = Theme.isDark() ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = Theme.isDark() ? '#94a3b8' : '#555';
+      const green = Theme.isDark() ? '#34d399' : '#10b981';
+      const orange = Theme.isDark() ? '#fbbf24' : '#f59e0b';
+      const red = Theme.isDark() ? '#f87171' : '#ef4444';
+      const bg = Theme.isDark() ? '#1e293b' : '#f0f0f0';
+
+      // Compute YaRN ramp
+      const dim = MM.head_dim;
+      const inv_dim = (b) => (dim * Math.log(MM.yarn_orig_max / (b * 2 * Math.PI))) / (2 * Math.log(MM.rope_base));
+      const low = Math.max(Math.floor(inv_dim(MM.yarn_beta_fast)), 0);
+      const high = Math.min(Math.ceil(inv_dim(MM.yarn_beta_slow)), dim / 2 - 1);
+
+      const padL = 60, padR = 20, padT = 30, padB = 45;
+      const plotW = 520, plotH = 140;
+
+      let bars = '';
+      for (let i = 0; i < dim / 2; i++) {
+        const ramp = Math.max(0, Math.min(1, (i - low) / Math.max(high - low, 0.001)));
+        const scale = 1 - ramp + ramp / MM.yarn_factor;
+        const x = padL + (i / (dim / 2)) * plotW;
+        const barW = plotW / (dim / 2) - 0.5;
+        const barH = scale * plotH;
+        let color;
+        if (ramp <= 0) color = green;
+        else if (ramp >= 1) color = red;
+        else color = orange;
+        bars += `<rect x="${x}" y="${padT + plotH - barH}" width="${Math.max(barW, 1)}" height="${barH}" fill="${color}" opacity="0.7"/>`;
+      }
+
+      svg.innerHTML = `
+        <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="${bg}" rx="4"/>
+        ${bars}
+        <line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="${fg2}" stroke-width="1"/>
+        <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="${fg2}" stroke-width="1"/>
+        <text x="${padL + plotW / 2}" y="${padT + plotH + 30}" text-anchor="middle" fill="${fg}" font-size="11">频率维度 i (0 ~ ${dim/2-1})</text>
+        <text x="${padL - 5}" y="${padT + 5}" text-anchor="end" fill="${fg}" font-size="10">1.0</text>
+        <text x="${padL - 5}" y="${padT + plotH}" text-anchor="end" fill="${fg}" font-size="10">${(1/MM.yarn_factor).toFixed(3)}</text>
+        <text x="10" y="${padT + plotH / 2}" text-anchor="middle" fill="${fg}" font-size="10" transform="rotate(-90, 10, ${padT + plotH/2})">缩放系数</text>
+        <text x="${padL + plotW / 2}" y="18" text-anchor="middle" fill="${fg}" font-size="12" font-weight="bold">YaRN: f'(i) = f(i) × ((1-γ) + γ/s)，s=${MM.yarn_factor}</text>
+        <!-- Region labels -->
+        <line x1="${padL + (low/(dim/2)) * plotW}" y1="${padT}" x2="${padL + (low/(dim/2)) * plotW}" y2="${padT + plotH}" stroke="${fg2}" stroke-width="1" stroke-dasharray="3,3"/>
+        <line x1="${padL + (high/(dim/2)) * plotW}" y1="${padT}" x2="${padL + (high/(dim/2)) * plotW}" y2="${padT + plotH}" stroke="${fg2}" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="${padL + (low/(dim/2)) * plotW}" y="${padT + plotH + 15}" text-anchor="middle" fill="${fg2}" font-size="9">low=${low}</text>
+        <text x="${padL + (high/(dim/2)) * plotW}" y="${padT + plotH + 15}" text-anchor="middle" fill="${fg2}" font-size="9">high=${high}</text>
+      `;
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  }
+};
+
+// ===== SECTION 5: FFN & MoE =====
+const FFNMoEViz = {
+  init() {
+    this.initSwiGLU();
+    this.initSiLU();
+    this.initMoE();
+    this.initLoadBalance();
+  },
+  initSwiGLU() {
+    const svg = $('#swigluSvg');
+    const draw = () => {
+      const fg = Theme.isDark() ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = Theme.isDark() ? '#94a3b8' : '#555';
+      const accent = Theme.isDark() ? '#818cf8' : '#4f46e5';
+      const green = Theme.isDark() ? '#34d399' : '#10b981';
+      const orange = Theme.isDark() ? '#fbbf24' : '#f59e0b';
+      const blue = Theme.isDark() ? '#60a5fa' : '#3b82f6';
+      svg.innerHTML = `
+        <defs><marker id="arrSG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>
+        <!-- Input -->
+        <rect x="10" y="75" width="80" height="40" rx="6" fill="none" stroke="${fg2}" stroke-width="1.5"/>
+        <text x="50" y="99" text-anchor="middle" fill="${fg}" font-size="11">x [512]</text>
+        <!-- Fork -->
+        <line x1="90" y1="95" x2="130" y2="55" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <line x1="90" y1="95" x2="130" y2="135" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <!-- gate_proj -->
+        <rect x="135" y="35" width="110" height="35" rx="6" fill="${blue}" opacity="0.15" stroke="${blue}" stroke-width="1.5"/>
+        <text x="190" y="50" text-anchor="middle" fill="${blue}" font-size="10" font-weight="bold">gate_proj</text>
+        <text x="190" y="63" text-anchor="middle" fill="${fg2}" font-size="9">512→1408</text>
+        <!-- up_proj -->
+        <rect x="135" y="120" width="110" height="35" rx="6" fill="${green}" opacity="0.15" stroke="${green}" stroke-width="1.5"/>
+        <text x="190" y="135" text-anchor="middle" fill="${green}" font-size="10" font-weight="bold">up_proj</text>
+        <text x="190" y="148" text-anchor="middle" fill="${fg2}" font-size="9">512→1408</text>
+        <!-- SiLU -->
+        <line x1="245" y1="52" x2="285" y2="52" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <rect x="290" y="35" width="70" height="35" rx="6" fill="${orange}" opacity="0.15" stroke="${orange}" stroke-width="1.5"/>
+        <text x="325" y="57" text-anchor="middle" fill="${orange}" font-size="11" font-weight="bold">SiLU</text>
+        <!-- Multiply -->
+        <line x1="360" y1="52" x2="410" y2="90" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <line x1="245" y1="137" x2="410" y2="96" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <circle cx="420" cy="93" r="14" fill="none" stroke="${accent}" stroke-width="2"/>
+        <text x="420" y="98" text-anchor="middle" fill="${accent}" font-size="16" font-weight="bold">×</text>
+        <text x="420" y="120" text-anchor="middle" fill="${fg2}" font-size="9">[1408]</text>
+        <!-- down_proj -->
+        <line x1="434" y1="93" x2="480" y2="93" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <rect x="485" y="75" width="110" height="35" rx="6" fill="${accent}" opacity="0.15" stroke="${accent}" stroke-width="1.5"/>
+        <text x="540" y="90" text-anchor="middle" fill="${accent}" font-size="10" font-weight="bold">down_proj</text>
+        <text x="540" y="103" text-anchor="middle" fill="${fg2}" font-size="9">1408→512</text>
+        <!-- Output -->
+        <line x1="595" y1="93" x2="640" y2="93" stroke="${fg2}" stroke-width="1" marker-end="url(#arrSG)"/>
+        <rect x="645" y="75" width="50" height="35" rx="6" fill="none" stroke="${fg2}" stroke-width="1.5"/>
+        <text x="670" y="97" text-anchor="middle" fill="${fg}" font-size="11">out</text>
+        <!-- Formula -->
+        <text x="350" y="185" text-anchor="middle" fill="${fg}" font-size="12">FFN(x) = down_proj( SiLU(gate_proj(x)) ⊙ up_proj(x) )</text>
+      `;
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  },
+
+  initSiLU() {
+    const canvas = $('#siluCanvas');
+    const ctx = canvas.getContext('2d');
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = 220, h = 140;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = Theme.isDark();
+      ctx.fillStyle = isDark ? '#1e293b' : '#f8f8f8';
+      ctx.fillRect(0, 0, w, h);
+
+      const padL = 30, padR = 10, padT = 10, padB = 25;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      const xRange = [-5, 5], yRange = [-1.5, 5];
+      const toX = v => padL + (v - xRange[0]) / (xRange[1] - xRange[0]) * plotW;
+      const toY = v => padT + plotH - (v - yRange[0]) / (yRange[1] - yRange[0]) * plotH;
+
+      // Axes
+      const fg2 = isDark ? '#475569' : '#ccc';
+      ctx.strokeStyle = fg2; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(toX(0), padT); ctx.lineTo(toX(0), padT + plotH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(padL, toY(0)); ctx.lineTo(padL + plotW, toY(0)); ctx.stroke();
+
+      // SiLU curve
+      const accent = isDark ? '#818cf8' : '#4f46e5';
+      ctx.strokeStyle = accent; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let px = 0; px <= plotW; px++) {
+        const x = xRange[0] + (px / plotW) * (xRange[1] - xRange[0]);
+        const y = silu(x);
+        const sy = toY(y);
+        if (px === 0) ctx.moveTo(padL + px, sy); else ctx.lineTo(padL + px, sy);
+      }
+      ctx.stroke();
+
+      // ReLU for comparison
+      const red = isDark ? '#f87171' : '#ef4444';
+      ctx.strokeStyle = red; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      for (let px = 0; px <= plotW; px++) {
+        const x = xRange[0] + (px / plotW) * (xRange[1] - xRange[0]);
+        const y = Math.max(0, x);
+        const sy = toY(y);
+        if (px === 0) ctx.moveTo(padL + px, sy); else ctx.lineTo(padL + px, sy);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Labels
+      const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+      ctx.fillStyle = accent; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('SiLU', padL + plotW - 30, toY(silu(4.5)) - 3);
+      ctx.fillStyle = red;
+      ctx.fillText('ReLU', padL + plotW - 32, toY(4.5) - 3);
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  },
+
+  initMoE() {
+    const canvas = $('#moeCanvas');
+    const ctx = canvas.getContext('2d');
+    let animating = false;
+    let animFrame = 0;
+    let routingResult = null;
+
+    const nTokens = 8, nExperts = MM.n_routed_experts, topK = MM.num_experts_per_tok;
+    const tokenLabels = ['我','是','一','个','语','言','模','型'];
+    const expertLabels = ['专家0','专家1','专家2','专家3'];
+
+    const computeRouting = () => {
+      const rng = mulberry32(Date.now() % 10000);
+      const gates = [];
+      const assignments = [];
+      for (let t = 0; t < nTokens; t++) {
+        const logits = Array.from({length: nExperts}, () => (rng() - 0.3) * 4);
+        const probs = softmax(logits);
+        const sorted = probs.map((p, i) => ({p, i})).sort((a, b) => b.p - a.p);
+        const topIdx = sorted.slice(0, topK).map(s => s.i);
+        const topW = sorted.slice(0, topK).map(s => s.p);
+        const wSum = topW.reduce((a, b) => a + b, 0);
+        assignments.push({experts: topIdx, weights: topW.map(w => w / wSum), allProbs: probs});
+        gates.push(probs);
+      }
+      return {gates, assignments};
+    };
+
+    const drawMoE = (progress) => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = 680, h = 320;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = Theme.isDark();
+      ctx.fillStyle = isDark ? '#1e293b' : '#f8f8f8';
+      ctx.fillRect(0, 0, w, h);
+
+      const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = isDark ? '#94a3b8' : '#888';
+
+      // Token circles at top
+      const tokenY = 40, expertY = 220, sharedY = 220;
+      const tokenStartX = 80, tokenGap = 70;
+      const expertStartX = 120, expertGap = 120;
+      const sharedX = 580;
+
+      // Draw expert boxes
+      for (let e = 0; e < nExperts; e++) {
+        const ex = expertStartX + e * expertGap;
+        ctx.fillStyle = isDark ? '#334155' : '#e8e8e8';
+        ctx.strokeStyle = COLORS[e]; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(ex - 35, expertY - 20, 70, 40, 8);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = fg; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(expertLabels[e], ex, expertY + 5);
+      }
+
+      // Shared expert
+      ctx.fillStyle = isDark ? '#334155' : '#e8e8e8';
+      ctx.strokeStyle = isDark ? '#a78bfa' : '#7c3aed'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(sharedX - 35, sharedY - 20, 70, 40, 8);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = fg; ctx.font = '11px sans-serif';
+      ctx.fillText('共享专家', sharedX, sharedY + 5);
+
+      // Draw tokens and routing lines
+      for (let t = 0; t < nTokens; t++) {
+        const tx = tokenStartX + t * tokenGap;
+
+        // Draw routing lines if we have results
+        if (routingResult && progress > 0) {
+          const a = routingResult.assignments[t];
+          for (let k = 0; k < topK; k++) {
+            const eIdx = a.experts[k];
+            const ex = expertStartX + eIdx * expertGap;
+            const lineProgress = Math.min(1, progress * 2 - k * 0.3);
+            if (lineProgress > 0) {
+              ctx.globalAlpha = lineProgress * a.weights[k];
+              ctx.strokeStyle = COLORS[eIdx]; ctx.lineWidth = Math.max(1, a.weights[k] * 4);
+              ctx.beginPath(); ctx.moveTo(tx, tokenY + 18); ctx.lineTo(ex, expertY - 20); ctx.stroke();
+            }
+          }
+          // Line to shared expert
+          if (progress > 0.5) {
+            ctx.globalAlpha = Math.min(1, (progress - 0.5) * 2) * 0.5;
+            ctx.strokeStyle = isDark ? '#a78bfa' : '#7c3aed'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(tx, tokenY + 18); ctx.lineTo(sharedX, sharedY - 20); ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        // Token circle
+        ctx.fillStyle = isDark ? '#475569' : '#ddd';
+        ctx.strokeStyle = COLORS[t % COLORS.length]; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(tx, tokenY, 18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = fg; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(tokenLabels[t], tx, tokenY + 5);
+
+        // Show weights
+        if (routingResult && progress >= 1) {
+          const a = routingResult.assignments[t];
+          ctx.font = '9px monospace'; ctx.fillStyle = fg2;
+          ctx.fillText(`E${a.experts[0]}:${a.weights[0].toFixed(2)} E${a.experts[1]}:${a.weights[1].toFixed(2)}`, tx, tokenY + 33);
+        }
+      }
+
+      // Labels
+      ctx.fillStyle = fg; ctx.font = '12px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('Token 序列', 10, 15);
+      ctx.fillText('路由专家 (top-2)', 10, expertY - 35);
+      ctx.fillText('+ 共享', sharedX - 30, expertY - 35);
+
+      // Load count at bottom
+      if (routingResult && progress >= 1) {
+        ctx.font = '10px monospace'; ctx.textAlign = 'center';
+        for (let e = 0; e < nExperts; e++) {
+          const ex = expertStartX + e * expertGap;
+          const count = routingResult.assignments.filter(a => a.experts.includes(e)).length;
+          ctx.fillStyle = fg2;
+          ctx.fillText(`${count} tokens`, ex, expertY + 35);
+        }
+      }
+
+      // Gate label
+      ctx.fillStyle = fg2; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('Gate: softmax(W_gate · x) → top-2 选择', w / 2, h - 15);
+    };
+
+    drawMoE(0);
+
+    let animId = null;
+    $('#moeRunBtn').onclick = () => {
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      routingResult = computeRouting();
+      let start = null;
+      const duration = 1500;
+      const animate = (ts) => {
+        if (!start) start = ts;
+        const progress = Math.min(1, (ts - start) / duration);
+        drawMoE(progress);
+        if (progress < 1) animId = requestAnimationFrame(animate);
+        else { animId = null; FFNMoEViz.updateLoadBalance(); }
+      };
+      animId = requestAnimationFrame(animate);
+    };
+
+    $('#moeResetBtn').onclick = () => {
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      routingResult = null;
+      drawMoE(0);
+    };
+
+    EventBus.on('themeChange', () => drawMoE(routingResult ? 1 : 0));
+    this._routingResult = () => routingResult;
+  },
+
+  updateLoadBalance() {
+    const routingResult = this._routingResult();
+    if (!routingResult) return;
+    const container = $('#expertLoadChart');
+    container.innerHTML = '';
+    const nExperts = MM.n_routed_experts;
+    const counts = Array(nExperts).fill(0);
+    const avgProbs = Array(nExperts).fill(0);
+    const nTokens = routingResult.assignments.length;
+
+    routingResult.assignments.forEach(a => {
+      a.experts.forEach(e => counts[e]++);
+      a.allProbs.forEach((p, e) => { avgProbs[e] += p; });
+    });
+    avgProbs.forEach((_, i) => avgProbs[i] /= nTokens);
+
+    const maxCount = Math.max(...counts, 1);
+    for (let e = 0; e < nExperts; e++) {
+      const wrapper = el('div', {style: {flex: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px'}});
+      const bar = el('div', {style: {
+        width: '100%', height: (counts[e] / maxCount * 100) + 'px',
+        background: COLORS[e], borderRadius: '4px 4px 0 0', transition: 'height 0.5s',
+        minHeight: '4px'
+      }});
+      const label = el('div', {style: {fontSize: '0.75rem', color: 'var(--fg2)'}}, `E${e}: ${counts[e]}`);
+      wrapper.appendChild(bar);
+      wrapper.appendChild(label);
+      container.appendChild(wrapper);
+    }
+
+    // Compute aux_loss
+    const fi = counts.map(c => c / (nTokens * MM.num_experts_per_tok));
+    const auxLoss = MM.aux_loss_alpha * nExperts * fi.reduce((s, f, i) => s + f * avgProbs[i], 0);
+    $('#auxLossDisplay').textContent = auxLoss.toFixed(6);
+  },
+
+  initLoadBalance() {
+    // Initial empty state
+    const container = $('#expertLoadChart');
+    for (let e = 0; e < MM.n_routed_experts; e++) {
+      const wrapper = el('div', {style: {flex: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px'}});
+      const bar = el('div', {style: {width: '100%', height: '4px', background: COLORS[e], borderRadius: '4px 4px 0 0'}});
+      const label = el('div', {style: {fontSize: '0.75rem', color: 'var(--fg2)'}}, `E${e}: 0`);
+      wrapper.appendChild(bar); wrapper.appendChild(label);
+      container.appendChild(wrapper);
+    }
+  }
+};
+
+// ===== SECTION 6: TRAINING =====
+const TrainingViz = {
+  init() {
+    this.initPipeline();
+    this.initSFTMask();
+    this.initDPO();
+    this.initLRCurve();
+  },
+  initPipeline() {
+    const svg = $('#pipelineSvg');
+    const info = $('#pipelineInfo');
+    const stages = [
+      {name: 'Pretrain', x: 20, color: '#3b82f6', desc: '预训练：在大规模文本语料上学习语言模式。lr=5e-4, 损失函数=CrossEntropy(next token prediction)。输出: pretrain_512.pth'},
+      {name: 'Full SFT', x: 170, color: '#10b981', desc: '监督微调：在对话数据上训练，学习指令跟随能力。lr=1e-6, 只对 assistant 回复计算损失。输出: full_sft_512.pth'},
+      {name: 'LoRA', x: 310, color: '#f59e0b', desc: 'LoRA 轻量微调：冻结主干，只训练低秩适配器。rank=16, alpha=16, 可训练参数仅 0.5M。输出: lora_512.pth'},
+      {name: 'DPO', x: 440, color: '#ef4444', desc: 'DPO 对齐：通过 chosen/rejected 对比优化。β=0.1, lr=4e-8。无需训练奖励模型。输出: dpo_512.pth'},
+      {name: 'GRPO', x: 560, color: '#8b5cf6', desc: 'GRPO 在线 RL：Group Relative Policy Optimization，采样多个回复计算组内相对奖励。输出: grpo_512.pth'},
+      {name: 'Inference', x: 690, color: '#06b6d4', desc: '推理部署：加载训练好的权重，KV Cache + 采样策略 (top-p, temperature) 生成文本。'}
+    ];
+
+    const draw = () => {
+      const fg = Theme.isDark() ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = Theme.isDark() ? '#94a3b8' : '#555';
+      let html = `<defs><marker id="arrPipe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>`;
+      stages.forEach((s, i) => {
+        html += `<rect x="${s.x}" y="35" width="110" height="42" rx="8" fill="${s.color}" opacity="0.15" stroke="${s.color}" stroke-width="2" style="cursor:pointer" data-stage="${i}"/>`;
+        html += `<text x="${s.x + 55}" y="61" text-anchor="middle" fill="${fg}" font-size="12" font-weight="bold" style="pointer-events:none">${s.name}</text>`;
+        if (i < stages.length - 1) {
+          html += `<line x1="${s.x + 110}" y1="56" x2="${stages[i+1].x}" y2="56" stroke="${fg2}" stroke-width="1.5" marker-end="url(#arrPipe)"/>`;
+        }
+      });
+      html += `<text x="400" y="105" text-anchor="middle" fill="${fg2}" font-size="10">每个阶段产出 out/{stage}_512.pth 权重文件，下一阶段通过 --from_weight 加载</text>`;
+      svg.innerHTML = html;
+
+      svg.querySelectorAll('rect[data-stage]').forEach(rect => {
+        rect.addEventListener('click', () => {
+          const idx = parseInt(rect.dataset.stage);
+          info.innerHTML = `<strong style="color:${stages[idx].color}">${stages[idx].name}</strong>: ${stages[idx].desc}`;
+          svg.querySelectorAll('rect[data-stage]').forEach(r => r.setAttribute('opacity', '0.15'));
+          rect.setAttribute('opacity', '0.4');
+        });
+      });
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  },
+
+  initSFTMask() {
+    const container = $('#sftMaskDemo');
+    const conversation = [
+      {role: 'system', tokens: ['<|im_start|>','system','\\n','你','是','Mini','Mind','<|im_end|>']},
+      {role: 'user', tokens: ['<|im_start|>','user','\\n','你','好','吗','？','<|im_end|>']},
+      {role: 'assistant', tokens: ['<|im_start|>','assistant','\\n','我','很','好','！','<|im_end|>']}
+    ];
+    container.innerHTML = '';
+    const wrapper = el('div', {style: {display: 'flex', flexWrap: 'wrap', gap: '3px', alignItems: 'center'}});
+    conversation.forEach(turn => {
+      const isAssistant = turn.role === 'assistant';
+      turn.tokens.forEach(t => {
+        const box = el('span', {
+          class: 'token-box',
+          style: {
+            background: isAssistant ? 'var(--green)' : 'var(--bg3)',
+            color: isAssistant ? '#fff' : 'var(--fg3)',
+            fontSize: '0.8rem'
+          },
+          title: isAssistant ? 'labels = token_id (计算损失)' : 'labels = -100 (忽略)'
+        }, t);
+        wrapper.appendChild(box);
+      });
+    });
+    container.appendChild(wrapper);
+  },
+
+  initDPO() {
+    const canvas = $('#dpoCanvas');
+    const ctx = canvas.getContext('2d');
+    const slider = $('#betaSlider');
+    const valEl = $('#betaVal');
+
+    const draw = () => {
+      const beta = parseFloat(slider.value);
+      valEl.textContent = beta.toFixed(2);
+
+      const dpr = window.devicePixelRatio || 1;
+      const w = 400, h = 160;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = Theme.isDark();
+      ctx.fillStyle = isDark ? '#1e293b' : '#f8f8f8';
+      ctx.fillRect(0, 0, w, h);
+
+      const padL = 50, padR = 20, padT = 20, padB = 30;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = isDark ? '#475569' : '#ddd';
+
+      // Axes
+      ctx.strokeStyle = fg2; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH); ctx.stroke();
+
+      // X range: logit difference from -4 to 4
+      const xRange = [-4, 4];
+      const toX = v => padL + (v - xRange[0]) / (xRange[1] - xRange[0]) * plotW;
+
+      // sigmoid curve: σ(β·x)
+      const green = isDark ? '#34d399' : '#10b981';
+      ctx.strokeStyle = green; ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (let px = 0; px <= plotW; px++) {
+        const x = xRange[0] + (px / plotW) * (xRange[1] - xRange[0]);
+        const sig = 1 / (1 + Math.exp(-beta * x));
+        const sy = padT + plotH - sig * plotH;
+        if (px === 0) ctx.moveTo(padL + px, sy); else ctx.lineTo(padL + px, sy);
+      }
+      ctx.stroke();
+
+      // Loss curve: -log(σ(β·x))
+      const red = isDark ? '#f87171' : '#ef4444';
+      ctx.strokeStyle = red; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let px = 0; px <= plotW; px++) {
+        const x = xRange[0] + (px / plotW) * (xRange[1] - xRange[0]);
+        const sig = 1 / (1 + Math.exp(-beta * x));
+        const loss = -Math.log(Math.max(sig, 1e-7));
+        const normedLoss = Math.min(loss / 4, 1); // normalize to [0,1] range
+        const sy = padT + plotH - normedLoss * plotH;
+        if (px === 0) ctx.moveTo(padL + px, sy); else ctx.lineTo(padL + px, sy);
+      }
+      ctx.stroke();
+
+      // Labels
+      ctx.fillStyle = fg; ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('log π_ratio(chosen) - log π_ratio(rejected)', padL + plotW / 2, h - 3);
+      ctx.textAlign = 'right';
+      ctx.fillText('1.0', padL - 5, padT + 5);
+      ctx.fillText('0', padL - 5, padT + plotH + 3);
+      // Legend
+      ctx.textAlign = 'left';
+      ctx.fillStyle = green; ctx.fillText('σ(β·x)', padL + plotW - 60, padT + 15);
+      ctx.fillStyle = red; ctx.fillText('-log σ (loss)', padL + plotW - 82, padT + 28);
+
+      // Zero line
+      ctx.strokeStyle = fg2; ctx.lineWidth = 0.5; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(toX(0), padT); ctx.lineTo(toX(0), padT + plotH); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = fg; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('0', toX(0), padT + plotH + 12);
+    };
+
+    slider.addEventListener('input', draw);
+    EventBus.on('themeChange', draw);
+    draw();
+  },
+
+  initLRCurve() {
+    const canvas = $('#lrCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = 500, h = 200;
+      canvas.width = w * dpr; canvas.height = h * dpr;
+      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const isDark = Theme.isDark();
+      ctx.fillStyle = isDark ? '#1e293b' : '#f8f8f8';
+      ctx.fillRect(0, 0, w, h);
+
+      const padL = 60, padR = 20, padT = 20, padB = 35;
+      const plotW = w - padL - padR, plotH = h - padT - padB;
+      const fg = isDark ? '#e2e8f0' : '#1a1a2e';
+      const fg2 = isDark ? '#475569' : '#ddd';
+
+      // Axes
+      ctx.strokeStyle = fg2; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + plotH); ctx.lineTo(padL + plotW, padT + plotH); ctx.stroke();
+
+      const getLR = (step, total, lr) => lr * (0.1 + 0.45 * (1 + Math.cos(Math.PI * step / total)));
+
+      const curves = [
+        {lr: 5e-4, color: isDark ? '#60a5fa' : '#3b82f6', label: 'Pretrain 5e-4'},
+        {lr: 1e-6, color: isDark ? '#34d399' : '#10b981', label: 'SFT 1e-6'},
+        {lr: 4e-8, color: isDark ? '#fbbf24' : '#f59e0b', label: 'DPO 4e-8'},
+      ];
+
+      const totalSteps = 100;
+      // Draw each curve normalized to its own max
+      curves.forEach(curve => {
+        ctx.strokeStyle = curve.color; ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let s = 0; s <= totalSteps; s++) {
+          const lr = getLR(s, totalSteps, curve.lr);
+          const normed = lr / curve.lr; // normalize to [0,1]
+          const x = padL + (s / totalSteps) * plotW;
+          const y = padT + plotH - normed * plotH;
+          if (s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      });
+
+      // Y axis (normalized)
+      ctx.fillStyle = fg; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+      ctx.fillText('lr_max', padL - 5, padT + 8);
+      ctx.fillText('0.1×lr', padL - 5, padT + plotH + 3);
+
+      // X axis
+      ctx.textAlign = 'center';
+      ctx.fillText('0', padL, padT + plotH + 15);
+      ctx.fillText('T/2', padL + plotW / 2, padT + plotH + 15);
+      ctx.fillText('T', padL + plotW, padT + plotH + 15);
+      ctx.fillText('训练步数 (归一化)', padL + plotW / 2, h - 3);
+
+      // Formula
+      ctx.fillStyle = fg; ctx.font = '10px monospace'; ctx.textAlign = 'left';
+      ctx.fillText('lr(t) = lr₀ × (0.1 + 0.45 × (1 + cos(πt/T)))', padL + 10, padT + 15);
+    };
+    draw();
+    EventBus.on('themeChange', draw);
+  }
+};
+
+// ===== SECTION 7: FORWARD PASS =====
+const ForwardPassViz = {
+  currentStep: -1,
+  autoTimer: null,
+  steps: [
+    {name: 'Input IDs', shape: '[1, 4]', desc: '输入 token ID 序列，例如 [1, 340, 590, 16] 对应 "<s> 你 好 。"'},
+    {name: 'Embedding', shape: '[1, 4, 512]', desc: 'Token IDs 通过 Embedding 矩阵查找，每个 ID 映射为 512 维向量。embed_tokens(input_ids)'},
+    {name: 'Dropout', shape: '[1, 4, 512]', desc: '训练时随机丢弃部分激活值防止过拟合（推理时关闭）。'},
+    {name: 'RoPE 预计算', shape: 'cos/sin: [4, 64]', desc: '预计算每个位置的旋转频率 cos(mθ) 和 sin(mθ)，后续所有层共享。'},
+    {name: 'Block 0: RMSNorm', shape: '[1, 4, 512]', desc: '第一个 Transformer Block 的输入层归一化：x / RMS(x) × γ，eps=1e-5。'},
+    {name: 'Block 0: Attention', shape: '[1, 4, 512]', desc: 'GQA 注意力: Q[8头]×K[2头]→scores→softmax→×V[2头]→concat→O_proj。加上残差连接。'},
+    {name: 'Block 0: RMSNorm', shape: '[1, 4, 512]', desc: '注意力输出后的第二个 RMSNorm，准备进入 FFN。'},
+    {name: 'Block 0: FFN', shape: '[1, 4, 512]', desc: 'SwiGLU FFN: down_proj(SiLU(gate_proj(x)) ⊙ up_proj(x))。中间维度 1408。加上残差连接。'},
+    {name: 'Block 1-7: ×7', shape: '[1, 4, 512]', desc: '重复相同结构 7 次（共 8 个 Block），每个 Block 包含 Attention + FFN + 2×RMSNorm + 2×残差。'},
+    {name: 'Final RMSNorm', shape: '[1, 4, 512]', desc: '最后一个 RMSNorm 归一化，准备投影到词表空间。'},
+    {name: 'LM Head', shape: '[1, 4, 6400]', desc: 'Linear(512→6400) 投影到词表大小，与 Embedding 共享权重。输出每个位置对 6400 个 token 的 logits。'},
+    {name: 'Softmax', shape: '[1, 4, 6400]', desc: 'softmax(logits/temperature) 将 logits 转换为概率分布。取最后一个位置的分布用于生成下一个 token。'},
+    {name: 'Top-K 采样', shape: '→ token_id', desc: '从概率分布中根据 top-p/top-k 策略采样一个 token，拼接到序列末尾，重复直到遇到 EOS。'},
+  ],
+
+  init() {
+    this.renderStepDots();
+    this.drawSVG(-1);
+    this.bindControls();
+  },
+
+  renderStepDots() {
+    const container = $('#fwdSteps');
+    container.innerHTML = '';
+    this.steps.forEach((_, i) => {
+      const dot = el('div', {
+        class: 'step-dot',
+        onclick: () => this.goToStep(i)
+      }, String(i + 1));
+      container.appendChild(dot);
+    });
+  },
+
+  updateStepDots() {
+    const dots = $$('#fwdSteps .step-dot');
+    dots.forEach((d, i) => {
+      d.classList.remove('active', 'done');
+      if (i < this.currentStep) d.classList.add('done');
+      else if (i === this.currentStep) d.classList.add('active');
+    });
+  },
+
+  goToStep(idx) {
+    this.currentStep = idx;
+    this.updateStepDots();
+    this.drawSVG(idx);
+    const step = this.steps[idx];
+    $('#fwdStepName').textContent = step.name;
+    $('#fwdShape').textContent = step.shape;
+    $('#fwdDesc').textContent = step.desc;
+    if (idx === this.steps.length - 1) this.showTopK();
+    else $('#fwdTopk').innerHTML = '<span style="color:var(--fg3);font-size:0.85rem">完成前向传播后显示</span>';
+  },
+
+  drawSVG(activeIdx) {
+    const svg = $('#fwdSvg');
+    const fg = Theme.isDark() ? '#e2e8f0' : '#1a1a2e';
+    const fg2 = Theme.isDark() ? '#94a3b8' : '#555';
+    const accent = Theme.isDark() ? '#818cf8' : '#4f46e5';
+    const green = Theme.isDark() ? '#34d399' : '#10b981';
+    const blue = Theme.isDark() ? '#60a5fa' : '#3b82f6';
+    const orange = Theme.isDark() ? '#fbbf24' : '#f59e0b';
+
+    const boxes = [
+      {y: 10, h: 30, label: 'Input IDs [1,4]', color: fg2},
+      {y: 50, h: 30, label: 'Embedding [1,4,512]', color: blue},
+      {y: 90, h: 25, label: 'Dropout', color: fg2},
+      {y: 122, h: 25, label: 'RoPE cos/sin', color: orange},
+      {y: 158, h: 25, label: 'RMSNorm₁', color: green},
+      {y: 192, h: 30, label: 'Multi-Head Attention (GQA)', color: accent},
+      {y: 232, h: 25, label: 'RMSNorm₂', color: green},
+      {y: 266, h: 30, label: 'FFN (SwiGLU)', color: orange},
+      {y: 308, h: 35, label: '× 7 more Blocks', color: fg2},
+      {y: 354, h: 25, label: 'Final RMSNorm', color: green},
+      {y: 390, h: 30, label: 'LM Head [512→6400]', color: blue},
+      {y: 430, h: 25, label: 'Softmax → Probs', color: accent},
+      {y: 466, h: 30, label: 'Top-K Sampling → token', color: green},
+    ];
+
+    let html = `<defs><marker id="arrFwd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="${fg2}"/></marker></defs>`;
+
+    boxes.forEach((b, i) => {
+      const isActive = i === activeIdx;
+      const isDone = i < activeIdx;
+      const opacity = isActive ? 0.35 : isDone ? 0.2 : 0.08;
+      const strokeW = isActive ? 2.5 : 1.5;
+      const strokeDash = (!isActive && !isDone) ? 'stroke-dasharray="4,2"' : '';
+
+      html += `<rect x="40" y="${b.y}" width="320" height="${b.h}" rx="6" fill="${b.color}" opacity="${opacity}" stroke="${b.color}" stroke-width="${strokeW}" ${strokeDash}/>`;
+      html += `<text x="200" y="${b.y + b.h/2 + 5}" text-anchor="middle" fill="${isActive ? fg : fg2}" font-size="${isActive ? 12 : 11}" ${isActive ? 'font-weight="bold"' : ''}>${b.label}</text>`;
+
+      // Arrow to next
+      if (i < boxes.length - 1) {
+        html += `<line x1="200" y1="${b.y + b.h}" x2="200" y2="${boxes[i+1].y}" stroke="${fg2}" stroke-width="1" marker-end="url(#arrFwd)" opacity="0.5"/>`;
+      }
+
+      // Residual connections
+      if (i === 5) {
+        html += `<path d="M 365 ${boxes[3].y + boxes[3].h/2} L 380 ${boxes[3].y + boxes[3].h/2} L 380 ${b.y + b.h + 5} L 365 ${b.y + b.h + 5}" fill="none" stroke="${accent}" stroke-width="1" stroke-dasharray="3,2" opacity="0.5"/>`;
+        html += `<text x="388" y="${(boxes[3].y + b.y + b.h)/2 + 5}" fill="${accent}" font-size="8" opacity="0.7">+残差</text>`;
+      }
+      if (i === 7) {
+        html += `<path d="M 365 ${boxes[5].y + boxes[5].h + 5} L 385 ${boxes[5].y + boxes[5].h + 5} L 385 ${b.y + b.h + 5} L 365 ${b.y + b.h + 5}" fill="none" stroke="${orange}" stroke-width="1" stroke-dasharray="3,2" opacity="0.5"/>`;
+        html += `<text x="393" y="${(boxes[5].y + boxes[5].h + b.y + b.h)/2 + 5}" fill="${orange}" font-size="8" opacity="0.7">+残差</text>`;
+      }
+    });
+
+    // Block bracket
+    html += `<rect x="25" y="155" width="370" height="150" rx="8" fill="none" stroke="${fg2}" stroke-width="1" stroke-dasharray="6,3" opacity="0.3"/>`;
+    html += `<text x="30" y="152" fill="${fg2}" font-size="9" opacity="0.6">TransformerBlock ×${MM.num_layers}</text>`;
+
+    svg.innerHTML = html;
+  },
+
+  showTopK() {
+    const container = $('#fwdTopk');
+    container.innerHTML = '';
+    const rng = mulberry32(777);
+    const candidates = [
+      {token: '谢', prob: 0},
+      {token: '我', prob: 0},
+      {token: '你', prob: 0},
+      {token: '很', prob: 0},
+      {token: '是', prob: 0},
+      {token: '好', prob: 0},
+      {token: '啊', prob: 0},
+      {token: '的', prob: 0},
+      {token: '了', prob: 0},
+      {token: '不', prob: 0},
+    ];
+    const logits = candidates.map(() => (rng() - 0.3) * 5);
+    const probs = softmax(logits, 0.8);
+    probs.sort((a, b) => b - a);
+    candidates.forEach((c, i) => c.prob = probs[i]);
+    candidates.sort((a, b) => b.prob - a.prob);
+
+    const maxProb = candidates[0].prob;
+    candidates.forEach((c, i) => {
+      const row = el('div', {style: {display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px'}});
+      row.appendChild(el('span', {style: {width: '30px', fontSize: '0.8rem', color: 'var(--fg2)', textAlign: 'right', fontFamily: 'monospace'}}, `#${i+1}`));
+      row.appendChild(el('span', {class: 'token-box', style: {background: tokenColor(i), color: '#fff', minWidth: '28px', textAlign: 'center'}}, c.token));
+      const barOuter = el('div', {style: {flex: '1', height: '14px', background: 'var(--bg3)', borderRadius: '3px', overflow: 'hidden'}});
+      const barInner = el('div', {style: {height: '100%', width: (c.prob / maxProb * 100) + '%', background: tokenColor(i), borderRadius: '3px', transition: 'width 0.5s'}});
+      barOuter.appendChild(barInner);
+      row.appendChild(barOuter);
+      row.appendChild(el('span', {style: {fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--accent)', width: '50px'}}, (c.prob * 100).toFixed(1) + '%'));
+      container.appendChild(row);
+    });
+  },
+
+  bindControls() {
+    $('#fwdNext').onclick = () => {
+      if (this.currentStep < this.steps.length - 1) this.goToStep(this.currentStep + 1);
+    };
+    $('#fwdPrev').onclick = () => {
+      if (this.currentStep > 0) this.goToStep(this.currentStep - 1);
+    };
+    $('#fwdReset').onclick = () => {
+      this.currentStep = -1;
+      if (this.autoTimer) { clearInterval(this.autoTimer); this.autoTimer = null; $('#fwdAuto').textContent = '▶ 自动播放'; }
+      this.updateStepDots();
+      this.drawSVG(-1);
+      $('#fwdStepName').textContent = '—';
+      $('#fwdShape').textContent = '—';
+      $('#fwdDesc').textContent = '点击"下一步"开始';
+      $('#fwdTopk').innerHTML = '<span style="color:var(--fg3);font-size:0.85rem">完成前向传播后显示</span>';
+    };
+    $('#fwdAuto').onclick = () => {
+      if (this.autoTimer) {
+        clearInterval(this.autoTimer); this.autoTimer = null;
+        $('#fwdAuto').textContent = '▶ 自动播放'; return;
+      }
+      $('#fwdAuto').textContent = '⏸ 暂停';
+      this.autoTimer = setInterval(() => {
+        if (this.currentStep < this.steps.length - 1) {
+          this.goToStep(this.currentStep + 1);
+        } else {
+          clearInterval(this.autoTimer); this.autoTimer = null;
+          $('#fwdAuto').textContent = '▶ 自动播放';
+        }
+      }, 1200);
+    };
+    EventBus.on('themeChange', () => this.drawSVG(this.currentStep));
+  }
+};
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', () => {
+  Theme.init();
+  Tabs.init();
+});
+
+})();
+</script>
+</body>
+</html>
