@@ -21,11 +21,12 @@
 #   eval        — 推理测试（单卡）
 #   convert     — 转换模型为 HuggingFace 格式（供 vLLM 使用）
 #   vllm        — 使用 vLLM 启动 OpenAI 兼容 API 服务
+#   web         — 构建并启动前端 Web 服务（Nginx Docker）
 #
 # 预设组合:
 #   all   = download build pretrain full_sft dpo reason eval
 #   core  = download build pretrain full_sft eval
-#   serve = convert vllm
+#   serve = convert vllm web
 #   rl    = ppo grpo spo
 #
 # 选项:
@@ -64,6 +65,9 @@ VLLM_IMAGE="quay.io/ascend/vllm-ascend:v0.13.0"
 VLLM_PORT=8000
 MAX_MODEL_LEN=2048
 VLLM_CONTAINER_NAME="vllm-minimind"
+WEB_PORT=8080
+WEB_IMAGE_NAME="minimind-web"
+WEB_CONTAINER_NAME="minimind-web"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -484,6 +488,56 @@ stage_eval() {
     fi
 }
 
+stage_web() {
+    local web_dir="$PROJECT_DIR/docs/tutorial/react-app"
+    if [ ! -f "$web_dir/package.json" ]; then
+        log_error "前端项目不存在: $web_dir"
+        return 1
+    fi
+
+    # 安装依赖 & 构建前端
+    log_info "构建前端项目..."
+    (cd "$web_dir" && npm install --no-audit --no-fund && npm run build)
+
+    if [ ! -f "$web_dir/dist/index.html" ]; then
+        log_error "前端构建失败: $web_dir/dist/index.html 不存在"
+        return 1
+    fi
+
+    # 构建 Docker 镜像
+    log_info "构建前端 Docker 镜像: $WEB_IMAGE_NAME"
+    run_cmd docker build -t "$WEB_IMAGE_NAME" "$web_dir"
+
+    # 停止已有容器
+    if docker ps -q --filter "name=$WEB_CONTAINER_NAME" | grep -q .; then
+        log_info "停止已有前端容器: $WEB_CONTAINER_NAME"
+        docker stop "$WEB_CONTAINER_NAME" >/dev/null 2>&1 || true
+        sleep 1
+    fi
+    docker rm -f "$WEB_CONTAINER_NAME" >/dev/null 2>&1 || true
+
+    # 启动容器（--network=host 模式下 nginx 可直接代理 127.0.0.1:8999/8000）
+    log_info "启动前端服务 (端口: $WEB_PORT, 镜像: $WEB_IMAGE_NAME)"
+    run_cmd docker run -d --rm \
+        --name "$WEB_CONTAINER_NAME" \
+        --network=host \
+        -e WEB_PORT="$WEB_PORT" \
+        -v "$web_dir/nginx.conf:/etc/nginx/templates/default.conf.template:ro" \
+        "$WEB_IMAGE_NAME"
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        return 0
+    fi
+
+    sleep 2
+    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:$WEB_PORT" | grep -q "200"; then
+        log_info "前端服务已就绪: http://localhost:$WEB_PORT"
+    else
+        log_info "前端容器已启动（等待 nginx 就绪...）: http://localhost:$WEB_PORT"
+    fi
+    log_info "停止服务: docker stop $WEB_CONTAINER_NAME"
+}
+
 # ============================================================
 # 参数解析
 # ============================================================
@@ -539,6 +593,10 @@ while [ $# -gt 0 ]; do
             MAX_MODEL_LEN="$2"
             shift 2
             ;;
+        --web-port)
+            WEB_PORT="$2"
+            shift 2
+            ;;
         --dry-run)
             DRY_RUN=1
             shift
@@ -578,17 +636,17 @@ expand_stages() {
                 expanded+=(download build pretrain full_sft eval)
                 ;;
             serve)
-                expanded+=(convert vllm)
+                expanded+=(convert vllm web)
                 ;;
             rl)
                 expanded+=(ppo grpo spo)
                 ;;
-            download|build|tokenizer|pretrain|full_sft|lora|dpo|reason|ppo|grpo|spo|distillation|eval|convert|vllm)
+            download|build|tokenizer|pretrain|full_sft|lora|dpo|reason|ppo|grpo|spo|distillation|eval|convert|vllm|web)
                 expanded+=("$stage")
                 ;;
             *)
                 log_error "未知阶段: $stage"
-                echo "可用阶段: download build tokenizer pretrain full_sft lora dpo reason ppo grpo spo distillation eval convert vllm"
+                echo "可用阶段: download build tokenizer pretrain full_sft lora dpo reason ppo grpo spo distillation eval convert vllm web"
                 echo "预设组合: all core serve rl"
                 exit 1
                 ;;

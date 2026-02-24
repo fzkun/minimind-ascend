@@ -74,10 +74,16 @@ bash scripts/run_all_npu.sh --weight tool_sft --hidden-size 768 --num-hidden-lay
 
 **Web 测试页面（独立 HTML / React App）：**
 ```bash
-# 独立 HTML 版：scripts/web_tool_test.html（浏览器直接打开）
-# React 版（推荐）：docs/tutorial/react-app/ 中的 "10.工具测试" Tab
+# 开发模式（Vite dev server，端口 5173）
 cd docs/tutorial/react-app && npm run dev
 # Vite 反向代理已配置：/v1/* → vLLM:8000，/api/* → 训练管理:8999
+
+# Docker 部署（Nginx，默认端口 8080）
+bash scripts/run_all_npu.sh web
+# 或自定义端口
+bash scripts/run_all_npu.sh --web-port 3000 web
+# 一键部署全部（转换模型 + vLLM + 前端）
+bash scripts/run_all_npu.sh --use-moe --weight tool_sft --hidden-size 768 --num-hidden-layers 16 serve
 ```
 
 ### 训练管理后端
