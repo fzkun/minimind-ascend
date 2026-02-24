@@ -23,6 +23,12 @@
   <h3>"大道至简，国产芯片也能训大模型"</h3>
 </div>
 
+<div align="center">
+
+**在线体验：https://fzkun.github.io/minimind-ascend/**
+
+</div>
+
 ---
 
 > **本项目是 [MiniMind](https://github.com/jingyaogong/minimind) 的昇腾 NPU 适配分支**，在原项目基础上完成了华为昇腾 910B（Atlas 800I A2）的全流程适配，实现了国产硬件上从预训练到部署的完整 LLM 训练链路。
