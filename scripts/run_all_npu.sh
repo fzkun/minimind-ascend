@@ -66,7 +66,7 @@ VLLM_PORT=8000
 MAX_MODEL_LEN=2048
 VLLM_CONTAINER_NAME="vllm-minimind"
 WEB_PORT=8080
-WEB_IMAGE_NAME="minimind-web"
+WEB_IMAGE_NAME="192.168.0.81:3001/ascend/minimind-web:latest"
 WEB_CONTAINER_NAME="minimind-web"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

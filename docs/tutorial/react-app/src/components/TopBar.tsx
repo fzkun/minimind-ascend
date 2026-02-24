@@ -1,11 +1,23 @@
 import { useTheme } from '../context/ThemeContext';
 
-const TAB_LABELS = [
-  '0.架构总览', '1.分词', '2.词向量', '3.注意力', '4.位置编码',
-  '5.前馈网络', '6.训练流程', '7.推理过程',
-  '8.上线部署', '9.昇腾实战',
-  '10.工具测试', '11.训练管理',
+interface TabGroup {
+  group: string;
+  tabs: string[];
+}
+
+const TAB_GROUPS: TabGroup[] = [
+  {
+    group: '教学',
+    tabs: ['架构总览', '分词', '词向量', '注意力', '位置编码', '前馈网络', '训练流程', '推理过程'],
+  },
+  {
+    group: '实战',
+    tabs: ['上线部署', '昇腾实战', '工具测试'],
+  },
 ];
+
+// 扁平化索引
+const ALL_TABS = TAB_GROUPS.flatMap(g => g.tabs);
 
 interface TopBarProps {
   activeTab: number;
@@ -15,17 +27,28 @@ interface TopBarProps {
 export default function TopBar({ activeTab, onTabChange }: TopBarProps) {
   const { isDark, toggle } = useTheme();
 
+  let globalIdx = 0;
+
   return (
     <div className="top-bar">
       <span className="logo">MiniMind</span>
-      {TAB_LABELS.map((label, i) => (
-        <button
-          key={i}
-          className={`tab-btn${i === activeTab ? ' active' : ''}`}
-          onClick={() => onTabChange(i)}
-        >
-          {label}
-        </button>
+      {TAB_GROUPS.map((group) => (
+        <div key={group.group} className="tab-group">
+          <span className="tab-group-label">{group.group}</span>
+          <span className="tab-group-sep">|</span>
+          {group.tabs.map((label) => {
+            const idx = globalIdx++;
+            return (
+              <button
+                key={idx}
+                className={`tab-btn${idx === activeTab ? ' active' : ''}`}
+                onClick={() => onTabChange(idx)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
       ))}
       <button className="theme-toggle" onClick={toggle} title="切换主题">
         {isDark ? '☀️' : '🌙'}
@@ -33,3 +56,5 @@ export default function TopBar({ activeTab, onTabChange }: TopBarProps) {
     </div>
   );
 }
+
+export { ALL_TABS };

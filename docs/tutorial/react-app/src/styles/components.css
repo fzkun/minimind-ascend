@@ -7,9 +7,20 @@
   overflow-x: auto; -webkit-overflow-scrolling: touch;
 }
 .top-bar .logo { font-weight: 700; font-size: 1.1rem; color: var(--accent); white-space: nowrap; margin-right: 8px; }
+.tab-group {
+  display: flex; align-items: center; gap: 2px;
+}
+.tab-group-label {
+  font-size: 0.68rem; color: var(--fg3); font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px; padding: 0 4px;
+  white-space: nowrap;
+}
+.tab-group-sep {
+  color: var(--border); font-size: 0.9rem; margin: 0 4px;
+}
 .tab-btn {
-  padding: 8px 14px; border: none; background: transparent; color: var(--fg2);
-  font-size: 0.85rem; cursor: pointer; border-radius: var(--radius);
+  padding: 6px 10px; border: none; background: transparent; color: var(--fg2);
+  font-size: 0.8rem; cursor: pointer; border-radius: var(--radius);
   white-space: nowrap; transition: all var(--transition); font-weight: 500;
 }
 .tab-btn:hover { background: var(--bg3); color: var(--fg); }

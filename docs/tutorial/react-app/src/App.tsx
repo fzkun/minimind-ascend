@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import TopBar from './components/TopBar';
 
 const sections = [
+  // ── 教学 ──
   lazy(() => import('./sections/ArchitectureSection')),
   lazy(() => import('./sections/TokenizationSection')),
   lazy(() => import('./sections/EmbeddingSection')),
@@ -11,10 +12,10 @@ const sections = [
   lazy(() => import('./sections/FFNMoESection')),
   lazy(() => import('./sections/TrainingSection')),
   lazy(() => import('./sections/ForwardPassSection')),
+  // ── 实战 ──
   lazy(() => import('./sections/DeploySection')),
   lazy(() => import('./sections/NPUDockerSection')),
   lazy(() => import('./sections/ToolPlaygroundSection')),
-  lazy(() => import('./sections/TrainManagerSection')),
 ];
 
 export default function App() {
