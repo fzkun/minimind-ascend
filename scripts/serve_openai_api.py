@@ -1,5 +1,6 @@
 import argparse
 import json
+import re
 import os
 import sys
 
@@ -22,6 +23,30 @@ from model.model_lora import apply_lora, load_lora
 warnings.filterwarnings('ignore')
 
 app = FastAPI()
+
+
+def parse_tool_calls_from_response(text):
+    """解析模型输出中的<tool_call>标签，返回OpenAI兼容的tool_calls列表"""
+    pattern = r'<tool_call>\s*(.*?)\s*</tool_call>'
+    matches = re.findall(pattern, text, re.DOTALL)
+    if not matches:
+        return None
+    tool_calls = []
+    for i, match in enumerate(matches):
+        try:
+            call_data = json.loads(match.strip())
+            name = call_data.get('name', '')
+            arguments = call_data.get('arguments', {})
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments, ensure_ascii=False)
+            tool_calls.append({
+                "id": f"call_{int(time.time())}_{i}",
+                "type": "function",
+                "function": {"name": name, "arguments": arguments}
+            })
+        except json.JSONDecodeError:
+            continue
+    return tool_calls if tool_calls else None
 
 
 def init_model(args):
@@ -68,9 +93,9 @@ class CustomStreamer(TextStreamer):
             self.queue.put(None)
 
 
-def generate_stream_response(messages, temperature, top_p, max_tokens):
+def generate_stream_response(messages, temperature, top_p, max_tokens, tools=None):
     try:
-        new_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)[-max_tokens:]
+        new_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, tools=tools or None)[-max_tokens:]
         inputs = tokenizer(new_prompt, return_tensors="pt", truncation=True).to(device)
 
         queue = Queue()
@@ -119,7 +144,8 @@ async def chat_completions(request: ChatRequest):
                     messages=request.messages,
                     temperature=request.temperature,
                     top_p=request.top_p,
-                    max_tokens=request.max_tokens
+                    max_tokens=request.max_tokens,
+                    tools=request.tools
                 )),
                 media_type="text/event-stream"
             )
@@ -127,7 +153,8 @@ async def chat_completions(request: ChatRequest):
             new_prompt = tokenizer.apply_chat_template(
                 request.messages,
                 tokenize=False,
-                add_generation_prompt=True
+                add_generation_prompt=True,
+                tools=request.tools or None
             )[-request.max_tokens:]
             inputs = tokenizer(new_prompt, return_tensors="pt", truncation=True).to(device)
             with torch.no_grad():
@@ -142,6 +169,13 @@ async def chat_completions(request: ChatRequest):
                     temperature=request.temperature
                 )
                 answer = tokenizer.decode(generated_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+            # 解析工具调用
+            tool_calls = parse_tool_calls_from_response(answer) if request.tools else None
+            message = {"role": "assistant", "content": answer}
+            finish_reason = "stop"
+            if tool_calls:
+                message["tool_calls"] = tool_calls
+                finish_reason = "tool_calls"
             return {
                 "id": f"chatcmpl-{int(time.time())}",
                 "object": "chat.completion",
@@ -150,8 +184,8 @@ async def chat_completions(request: ChatRequest):
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": answer},
-                        "finish_reason": "stop"
+                        "message": message,
+                        "finish_reason": finish_reason
                     }
                 ]
             }

@@ -110,13 +110,13 @@
 
 - MiniMind-LLM结构的全部代码（Dense+MoE模型）。
 - 包含Tokenizer分词器详细训练代码。
-- 包含Pretrain、SFT、LoRA、RLHF-DPO、RLAIF(PPO/GRPO/SPO)、模型蒸馏的全过程训练代码。
+- 包含Pretrain、SFT、LoRA、RLHF-DPO、RLAIF(PPO/GRPO/SPO)、模型蒸馏、工具调用(Tool Calling)的全过程训练代码。
 - 收集、蒸馏、整理并清洗去重所有阶段的高质量数据集，且全部开源。
 - 从0实现预训练、指令微调、LoRA、DPO/PPO/GRPO/SPO强化学习，白盒模型蒸馏。关键算法几乎不依赖第三方封装的框架，且全部开源。
 - 同时兼容`transformers`、`trl`、`peft`等第三方主流框架。
 - 训练支持单机单卡、单机多卡(DDP、DeepSpeed)训练，支持wandb/swanlab可视化训练流程。支持动态启停训练。
 - 在第三方测评榜（C-Eval、C-MMLU、OpenBookQA等）进行模型测试，支持YaRN算法执行RoPE长文本外推。
-- 实现Openai-Api协议的极简服务端，便于集成到第三方ChatUI使用（FastGPT、Open-WebUI等）。
+- 实现Openai-Api协议的极简服务端（含Tool Calling支持），便于集成到第三方ChatUI使用（FastGPT、Open-WebUI等）。
 - 基于streamlit实现最简聊天WebUI前端。
 - 全面兼容社区热门`llama.cpp`、`vllm`、`ollama`推理引擎或`Llama-Factory`训练框架。
 - 复现(蒸馏/RL)大型推理模型DeepSeek-R1的MiniMind-Reason模型，**数据+模型**全部开源！
@@ -545,6 +545,55 @@ quality（当然也还不算high，提升数据质量无止尽）。
 目前已经有[HqWu-HITCS/Awesome-Chinese-LLM](https://github.com/HqWu-HITCS/Awesome-Chinese-LLM)
 在收集和梳理中文LLM相关的开源模型、应用、数据集及教程等资料，并持续更新这方面的最新进展。全面且专业，Respect！
 
+## Ⅶ Tool Calling数据
+
+工具调用（Tool Calling / Function Calling）数据用于训练模型学会在对话中调用外部工具（如天气查询、数学计算、搜索等）。
+模型需要学会：何时调用工具、选择正确的工具、生成合法的JSON参数、根据工具返回结果生成最终回答。
+
+MiniMind的chat template已内置`<tool_call>`标签支持，工具调用的输出格式为：
+
+```text
+<tool_call>
+{"name": "get_weather", "arguments": {"city": "北京"}}
+</tool_call>
+```
+
+**数据准备脚本**：[scripts/data_prepare_toolcall.py](./scripts/data_prepare_toolcall.py) 支持从HuggingFace下载并转换3个开源工具调用数据集：
+
+| 数据源 | HuggingFace ID | 规模 | 许可证 |
+|--------|---------------|------|--------|
+| `hermes` | `NousResearch/hermes-function-calling-v1` | ~11.6K | Apache 2.0 |
+| `glaive`（推荐） | `hiyouga/glaive-function-calling-v2-sharegpt` | ~87K | Apache 2.0 |
+| `xlam` | `Salesforce/xlam-function-calling-60k` | 60K | CC-BY-4.0 |
+
+```bash
+# 下载并转换glaive数据集（推荐，数据量最大）
+python scripts/data_prepare_toolcall.py --source glaive --max_length 1024 --max_samples 10000
+
+# 使用国内镜像加速下载
+HF_ENDPOINT=https://hf-mirror.com python scripts/data_prepare_toolcall.py --source glaive --max_length 1024 --max_samples 10000
+```
+
+脚本会自动完成以下处理：
+- 从原始数据中提取工具定义，构建标准`functions`结构
+- 将`function_call`转为`<tool_call>`标签包裹的JSON格式
+- 将工具定义预渲染到system消息的`# Tools`段落中（与chat template一致）
+- 按token长度过滤超长样本，支持`--mix_ratio`混入原有SFT数据防止遗忘
+
+输出文件为`dataset/sft_tool_call.jsonl`，格式与SFT数据一致：
+
+```json
+{
+  "conversations": [
+    {"role": "system", "content": "You are a helpful assistant.\n\n# Tools\n..."},
+    {"role": "user", "content": "北京天气怎么样？"},
+    {"role": "assistant", "content": "<tool_call>\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"北京\"}}\n</tool_call>"},
+    {"role": "tool", "content": "晴，25°C"},
+    {"role": "assistant", "content": "北京今天晴朗，气温25°C。"}
+  ]
+}
+```
+
 ---
 
 ## Ⅷ MiniMind训练数据集
@@ -569,7 +618,8 @@ MiniMind训练数据集下载地址： [ModelScope](https://www.modelscope.cn/da
 ├── sft_1024.jsonl (5.6GB)
 ├── sft_2048.jsonl (9GB)
 ├── sft_512.jsonl (7.5GB)
-└── sft_mini_512.jsonl (1.2GB, ✨)
+├── sft_mini_512.jsonl (1.2GB, ✨)
+└── sft_tool_call.jsonl (由脚本生成)
 ```
 
 <details style="color:rgb(128,128,128)">
@@ -585,6 +635,7 @@ MiniMind训练数据集下载地址： [ModelScope](https://www.modelscope.cn/da
 * `sft_2048.jsonl` --整合自Qwen2.5蒸馏数据，每条数据字符最大长度为2048（推荐设置`max_seq_len≈1400`）
 * `sft_512.jsonl` --整合自匠数科技SFT数据，每条数据字符最大长度为512（推荐设置`max_seq_len≈350`）
 * `sft_mini_512.jsonl`✨ --极简整合自匠数科技SFT数据+Qwen2.5蒸馏数据（用于快速训练Zero模型），每条数据字符最大长度为512（推荐设置`max_seq_len≈340`）
+* `sft_tool_call.jsonl` --工具调用SFT数据集，由`scripts/data_prepare_toolcall.py`从开源数据集转换生成（推荐设置`max_seq_len≈700`）
 
 
 训练参数`max_seq_len`目前指的是tokens长度，而非绝对字符数。
@@ -1318,6 +1369,79 @@ python train_spo.py
 
 ---
 
+### **8. 工具调用微调 (Tool Calling SFT)**
+
+工具调用（Tool Calling / Function Calling）使模型能够在对话中识别用户意图并调用外部工具，是实现AI Agent的基础能力之一。
+
+MiniMind已内置`<tool_call>`标签的chat template支持，只需准备工具调用数据并进行SFT即可。
+
+**8.1 数据准备**
+
+```bash
+# 下载并转换工具调用数据集（详见上文 Ⅶ Tool Calling数据）
+python scripts/data_prepare_toolcall.py --source glaive --max_length 1024 --max_samples 10000
+```
+
+**8.2 训练**
+
+基于已有SFT权重继续训练工具调用能力：
+
+```bash
+torchrun --nproc_per_node 1 train_full_sft.py \
+    --epochs 8 --batch_size 16 --learning_rate 5e-5 \
+    --data_path ../dataset/sft_tool_call.jsonl \
+    --from_weight full_sft --save_weight tool_sft --max_seq_len 1024
+```
+
+> 训练后的模型权重文件保存为: `tool_sft_*.pth`
+
+**8.3 评估**
+
+[scripts/eval_tool_call.py](./scripts/eval_tool_call.py) 提供自动评估和交互式两种模式：
+
+```bash
+# 自动评估（预设测试用例，输出评估指标）
+python scripts/eval_tool_call.py --weight tool_sft --mode auto
+
+# 交互式测试
+python scripts/eval_tool_call.py --weight tool_sft --mode interactive
+```
+
+自动评估包含5个维度的指标：
+
+| 指标 | 说明 |
+|------|------|
+| 工具调用检测率 | 应该调用工具时是否正确发起调用 |
+| 工具选择正确率 | 是否选择了正确的工具 |
+| JSON有效率 | 生成的tool_call JSON是否可解析 |
+| 参数完整率 | 工具参数是否完整 |
+| 无需工具正确率 | 不需要工具时是否正确地不调用 |
+
+评估脚本内置了4个模拟工具（`get_weather`、`calculate`、`search`、`get_time`），支持完整的端到端测试：
+生成工具调用 → 模拟执行 → 注入结果 → 生成最终回答。
+
+**8.4 API服务**
+
+`serve_openai_api.py` 已支持OpenAI兼容的工具调用接口，在请求中传入`tools`字段即可：
+
+```bash
+python scripts/serve_openai_api.py --weight tool_sft
+```
+
+```bash
+curl http://localhost:8998/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "minimind",
+    "messages": [{"role": "user", "content": "北京天气怎么样？"}],
+    "tools": [{"type": "function", "function": {"name": "get_weather", "description": "获取天气", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}]
+  }'
+```
+
+模型检测到需要调用工具时，响应会包含`tool_calls`字段和`finish_reason: "tool_calls"`。
+
+---
+
 ## V 训练结果
 
 ### 训练完成-模型合集
@@ -1673,7 +1797,7 @@ MiniMind模型本身预训练数据集小的可怜，也没有针对性的对测
 
 ## 🖥️ 基于MiniMind-API服务接口
 
-* [./scripts/serve_openai_api.py](./scripts/serve_openai_api.py)完成了兼容openai-api的最简聊天接口，方便将自己的模型接入第三方UI
+* [./scripts/serve_openai_api.py](./scripts/serve_openai_api.py)完成了兼容openai-api的最简聊天接口（含Tool Calling工具调用支持），方便将自己的模型接入第三方UI
   例如FastGPT、OpenWebUI、Dify等等。
 
 * 从[Huggingface](https://huggingface.co/collections/jingyaogong/minimind-66caf8d999f5c7fa64f399e5)下载模型权重文件，文件树：
