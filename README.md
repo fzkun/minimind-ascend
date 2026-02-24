@@ -15,6 +15,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/fzkun/minimind-ascend)](https://github.com/fzkun/minimind-ascend/commits/master)
 [![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/fzkun/minimind-ascend/pulls)
 [![Upstream](https://img.shields.io/badge/upstream-jingyaogong%2Fminimind-orange)](https://github.com/jingyaogong/minimind)
+[![Demo](https://img.shields.io/badge/demo-GitHub%20Pages-blue)](https://fzkun.github.io/minimind-ascend/)
 
 </div>
 
@@ -145,6 +146,8 @@ python scripts/serve_openai_api.py --weight tool_sft
 ```
 
 ## Web 可视化教学
+
+在线体验：**https://fzkun.github.io/minimind-ascend/**
 
 基于 React + TypeScript 的交互式 LLM 架构可视化教学页面，包含：
 - Tokenization、Embedding、注意力机制、RoPE、FFN/MoE 等核心概念
