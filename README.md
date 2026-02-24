@@ -1,35 +1,75 @@
-<div align="center">
+<div align=”center”>
 
 ![logo](./images/logo.png)
 
-</div>
+# MiniMind-Ascend
 
-<div align="center">
-
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=jingyaogong/minimind)
-[![GitHub Repo stars](https://img.shields.io/github/stars/jingyaogong/minimind?style=social)](https://github.com/jingyaogong/minimind/stargazers)
-[![GitHub Code License](https://img.shields.io/github/license/jingyaogong/minimind)](LICENSE)
-[![GitHub last commit](https://img.shields.io/github/last-commit/jingyaogong/minimind)](https://github.com/jingyaogong/minimind/commits/master)
-[![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/jingyaogong/minimind/pulls)
-[![Collection](https://img.shields.io/badge/🤗-MiniMind%20%20Collection-blue)](https://huggingface.co/collections/jingyaogong/minimind-66caf8d999f5c7fa64f399e5)
+**基于华为昇腾 NPU 的 MiniMind 训练与部署方案**
 
 </div>
 
-<div align="center">
+<div align=”center”>
 
-![GitHub Trend](https://trendshift.io/api/badge/repositories/12586)
-
-</div>
-
-<div align="center">
-  <h3>"大道至简"</h3>
-</div>
-
-<div align="center">
-
-中文 | [English](./README_en.md)
+[![GitHub Repo stars](https://img.shields.io/github/stars/fzkun/minimind-ascend?style=social)](https://github.com/fzkun/minimind-ascend/stargazers)
+[![GitHub Code License](https://img.shields.io/github/license/fzkun/minimind-ascend)](LICENSE)
+[![GitHub last commit](https://img.shields.io/github/last-commit/fzkun/minimind-ascend)](https://github.com/fzkun/minimind-ascend/commits/master)
+[![GitHub pull request](https://img.shields.io/badge/PRs-welcome-blue)](https://github.com/fzkun/minimind-ascend/pulls)
+[![Upstream](https://img.shields.io/badge/upstream-jingyaogong%2Fminimind-orange)](https://github.com/jingyaogong/minimind)
 
 </div>
+
+<div align=”center”>
+  <h3>”大道至简，国产芯片也能训大模型”</h3>
+</div>
+
+---
+
+> **本项目是 [MiniMind](https://github.com/jingyaogong/minimind) 的昇腾 NPU 适配分支**，在原项目基础上完成了华为昇腾 910B（Atlas 800I A2）的全流程适配，实现了国产硬件上从预训练到部署的完整 LLM 训练链路。
+
+### 相比上游的主要变化
+
+- **昇腾 NPU 全流程适配**：所有训练脚本（Pretrain / SFT / LoRA / DPO / PPO / GRPO / SPO / 蒸馏 / 推理训练）均已适配华为昇腾 910B，支持单卡和 8 卡分布式训练（HCCL 通信后端）
+- **一键训练部署脚本**：`scripts/run_all_npu.sh` 编排全流程（数据下载 → 镜像构建 → 多阶段训练 → 模型转换 → vLLM 部署），一条命令完成
+- **Docker 容器化**：提供 `Dockerfile.ascend` 构建 NPU 训练镜像，开箱即用
+- **模型转换与 vLLM 部署**：支持 Dense → LlamaForCausalLM、MoE → Qwen2MoeForCausalLM 格式转换，直接用 vLLM-Ascend 推理
+- **工具调用 (Tool Calling)**：新增工具调用数据准备、训练、评估全流程，含 OpenAI 兼容 API
+- **交互式可视化教学**：基于 React 的 LLM 架构可视化教学页面（含部署与昇腾实战章节）
+- **训练管理后端**：FastAPI 训练控制 REST API + 实时日志 SSE 流，配合 Web 页面使用
+- **CUDA/NPU 自动切换**：代码自动检测 `torch_npu`，有则走 NPU 路径，否则回退 CUDA，无需手动改代码
+
+### 硬件要求
+
+| 项目 | 要求 |
+|------|------|
+| 硬件 | Atlas 800I A2（昇腾 910B × 8）或单卡 |
+| 驱动 | Ascend NPU 驱动（`/usr/local/Ascend/driver`） |
+| 软件 | Docker |
+
+### 快速开始
+
+```bash
+# 克隆项目
+git clone https://github.com/fzkun/minimind-ascend.git
+cd minimind-ascend
+
+# 一键完整训练（下载数据 → 构建镜像 → pretrain → sft → dpo → reason → eval）
+bash scripts/run_all_npu.sh all
+
+# 模型转换 + vLLM 部署
+bash scripts/run_all_npu.sh serve
+
+# MoE 模型训练 + 部署
+bash scripts/run_all_npu.sh --use-moe --hidden-size 768 --num-hidden-layers 16 all
+bash scripts/run_all_npu.sh --use-moe --hidden-size 768 --num-hidden-layers 16 serve
+```
+
+详细的昇腾训练指南请参考 **[README-Ascend.md](./README-Ascend.md)**。
+
+---
+
+以下为原始 MiniMind 项目说明。
+
+---
 
 * 此开源项目旨在完全从0开始，仅用3块钱成本 + 2小时！即可训练出仅为25.8M的超小语言模型**MiniMind**。
 * **MiniMind**系列极其轻量，最小版本体积是 GPT-3 的 $\frac{1}{7000}$，力求做到最普通的个人GPU也可快速训练。
@@ -39,7 +79,7 @@
 * 这不仅是大语言模型的全阶段开源复现，也是一个入门LLM的教程。
 * 希望此项目能为所有人提供一个抛砖引玉的示例，一起感受创造的乐趣！推动更广泛AI社区的进步！
 
-> 为防止误解，“2小时” 基于NVIDIA 3090硬件设备（单卡）测试，“3块钱”指GPU服务器租用成本，具体规格详情见下文。
+> 为防止误解，”2小时” 基于NVIDIA 3090硬件设备（单卡）测试，”3块钱”指GPU服务器租用成本，具体规格详情见下文。
 
 ---
 
