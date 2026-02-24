@@ -202,6 +202,10 @@ trainer/train_*.py             — 各阶段训练脚本（均已适配 NPU）
 docs/tutorial/react-app/       — 交互式可视化教学 Web 应用
 ```
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=fzkun/minimind-ascend&type=Date)](https://star-history.com/#fzkun/minimind-ascend&Date)
+
 ## 致谢
 
 本项目基于 [jingyaogong/minimind](https://github.com/jingyaogong/minimind) 开发，感谢原作者的开源贡献。
