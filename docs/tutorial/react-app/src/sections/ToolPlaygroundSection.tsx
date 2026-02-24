@@ -61,16 +61,35 @@ const PRESETS = [
 ];
 
 // ==================== 类型 ====================
+type CallMode = 'normal' | 'mcp';
+
 interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
 }
 
+interface TraceStep {
+  type: 'user' | 'llm' | 'tool' | 'tool_result' | 'reply';
+  label: string;
+  time: number; // ms since trace start
+  data?: string;
+}
+
+interface CallTrace {
+  steps: TraceStep[];
+  totalMs: number;
+  mode: CallMode;
+}
+
 interface ChatMessage {
-  role: 'user' | 'assistant' | 'tool' | 'system';
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'trace';
   content: string;
   toolCalls?: ToolCall[];
   toolName?: string;
+  trace?: CallTrace;
+  mcpRequest?: object;
+  mcpResponse?: object;
+  isMcp?: boolean;
 }
 
 interface ApiToolCall {
@@ -88,6 +107,9 @@ interface Metrics {
   shouldCallCount: number;
   shouldNotCallCount: number;
 }
+
+// 流程动画步骤 ID
+type FlowStep = 'idle' | 'user' | 'llm1' | 'tool' | 'llm2' | 'reply';
 
 // ==================== 工具函数 ====================
 function parseToolCalls(text: string): ToolCall[] {
@@ -110,7 +132,6 @@ function simulateTool(name: string, args: Record<string, unknown>): string {
     case 'calculate':
       try {
         const expr = String(args.expression || '0');
-        // 安全计算：只允许数字和基本运算符
         if (/^[\d\s+\-*/().%]+$/.test(expr)) {
           return String(Function('"use strict"; return (' + expr + ')')());
         }
@@ -125,12 +146,117 @@ function simulateTool(name: string, args: Record<string, unknown>): string {
   }
 }
 
+async function mcpCallTool(name: string, args: Record<string, unknown>): Promise<{ result: string; request: object; response: object }> {
+  const mcpReq = {
+    jsonrpc: '2.0',
+    method: 'tools/call',
+    params: { name, arguments: args },
+  };
+  const resp = await fetch('/api/mcp/tools/call', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, arguments: args }),
+  });
+  if (!resp.ok) throw new Error(`MCP HTTP ${resp.status}`);
+  const data = await resp.json();
+  const text = data.result?.content?.[0]?.text ?? JSON.stringify(data.result);
+  return { result: text, request: mcpReq, response: data };
+}
+
 function escapeHtml(t: string): string {
   return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function stripToolCallTags(text: string): string {
   return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();
+}
+
+function fmtMs(ms: number): string {
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
+}
+
+// ==================== 流程动画组件 ====================
+function FlowAnimation({ activeStep, mode }: { activeStep: FlowStep; mode: CallMode }) {
+  const nodes: { id: FlowStep; label: string; icon: string }[] = [
+    { id: 'user', label: 'User', icon: '👤' },
+    { id: 'llm1', label: 'LLM', icon: '🧠' },
+    { id: 'tool', label: mode === 'mcp' ? 'MCP Server' : 'Tool (本地)', icon: mode === 'mcp' ? '🔌' : '🔧' },
+    { id: 'llm2', label: 'LLM', icon: '🧠' },
+    { id: 'reply', label: 'Reply', icon: '💬' },
+  ];
+
+  // 步骤顺序索引（用于判断 done / active）
+  const stepOrder: FlowStep[] = ['user', 'llm1', 'tool', 'llm2', 'reply'];
+  const activeIdx = stepOrder.indexOf(activeStep);
+
+  const nodeState = (id: FlowStep) => {
+    const idx = stepOrder.indexOf(id);
+    if (activeStep === 'idle') return '';
+    if (idx < activeIdx) return 'done';
+    if (idx === activeIdx) return 'active';
+    return '';
+  };
+
+  const arrowState = (afterIdx: number) => {
+    if (activeStep === 'idle') return '';
+    if (afterIdx < activeIdx) return 'done';
+    if (afterIdx === activeIdx) return 'active';
+    return '';
+  };
+
+  return (
+    <div className="pg-flow-body">
+      {nodes.map((n, i) => (
+        <div key={n.id} style={{ display: 'flex', alignItems: 'center' }}>
+          <div className={`pg-flow-node ${nodeState(n.id)}`}>
+            <span className="pg-flow-icon">{n.icon}</span>
+            {n.label}
+          </div>
+          {i < nodes.length - 1 && (
+            <div className={`pg-flow-arrow ${arrowState(i)}`}>
+              <svg viewBox="0 0 36 16">
+                <line x1="2" y1="8" x2="28" y2="8" strokeWidth="2" />
+                <polygon points="28,4 34,8 28,12" />
+              </svg>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ==================== 时间线组件 ====================
+function TraceCard({ trace }: { trace: CallTrace }) {
+  const dotClass = (type: TraceStep['type']) => {
+    switch (type) {
+      case 'tool': return 'tool';
+      case 'tool_result': return trace.mode === 'mcp' ? 'mcp' : 'result';
+      case 'reply': return 'reply';
+      default: return '';
+    }
+  };
+
+  return (
+    <div className="pg-trace">
+      <div className="pg-trace-title">
+        调用过程
+        <span className="pg-trace-total">总耗时: {fmtMs(trace.totalMs)}</span>
+        {trace.mode === 'mcp' && <span className="pg-chip-badge">MCP</span>}
+      </div>
+      {trace.steps.map((s, i) => (
+        <div key={i} className="pg-trace-step">
+          <div className={`pg-trace-dot ${dotClass(s.type)}`} />
+          <div className="pg-trace-line" />
+          <div className="pg-trace-label">
+            {s.label}
+            {s.data && <> <code>{s.data}</code></>}
+          </div>
+          <div className="pg-trace-time">+{fmtMs(s.time)}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ==================== 组件 ====================
@@ -148,6 +274,12 @@ export default function ToolPlaygroundSection() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [inputVal, setInputVal] = useState('');
 
+  // 新增状态
+  const [callMode, setCallMode] = useState<CallMode>('normal');
+  const [flowStep, setFlowStep] = useState<FlowStep>('idle');
+  const [flowOpen, setFlowOpen] = useState(true);
+  const [mcpTools, setMcpTools] = useState<Array<{ name: string; description: string }>>([]);
+
   const messagesRef = useRef<HTMLDivElement>(null);
   const conversationRef = useRef<Array<{ role: string; content: string; tool_calls?: ApiToolCall[] }>>([]);
 
@@ -158,6 +290,23 @@ export default function ToolPlaygroundSection() {
   }, []);
 
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
+
+  // MCP 模式切换时获取工具列表
+  useEffect(() => {
+    if (callMode === 'mcp') {
+      fetch('/api/mcp/tools/list')
+        .then(r => r.json())
+        .then(data => {
+          const tools = data.result?.tools || [];
+          setMcpTools(tools.map((t: { name: string; description: string }) => ({ name: t.name, description: t.description })));
+          setEnabledTools(new Set(tools.map((t: { name: string }) => t.name)));
+        })
+        .catch(() => setMcpTools([]));
+    } else {
+      setMcpTools([]);
+      setEnabledTools(new Set(TOOLS.map(t => t.function.name)));
+    }
+  }, [callMode]);
 
   const addMsg = useCallback((msg: ChatMessage) => {
     setMessages(prev => [...prev, msg]);
@@ -200,9 +349,9 @@ export default function ToolPlaygroundSection() {
       temperature,
       top_p: 0.9,
       max_tokens: maxTokens,
+      repetition_penalty: 1.3,
       stream: false,
     };
-    // vLLM 未开启 --enable-auto-tool-choice，不发 tools 字段，靠解析 <tool_call> 标签
     const canSendTools = PRESETS[presetIdx]?.sendTools !== false;
     if (tools.length > 0 && canSendTools) body.tools = tools;
 
@@ -219,60 +368,111 @@ export default function ToolPlaygroundSection() {
   const sendWithTools = useCallback(async (userMsg: string, conv?: typeof conversationRef.current) => {
     const tools = getActiveTools();
     const conversation = conv || conversationRef.current;
+    const isMcp = callMode === 'mcp';
+
+    // 时间线记录
+    const traceStart = performance.now();
+    const traceSteps: TraceStep[] = [];
+    const addTrace = (type: TraceStep['type'], label: string, data?: string) => {
+      traceSteps.push({ type, label, time: performance.now() - traceStart, data });
+    };
+
+    // ① 用户输入
+    setFlowStep('user');
     conversation.push({ role: 'user', content: userMsg });
     addMsg({ role: 'user', content: userMsg });
+    addTrace('user', '用户输入', userMsg);
 
     const maxRounds = 3;
+    let hadToolCall = false;
+
     for (let round = 0; round < maxRounds; round++) {
+      // ② LLM 思考
+      setFlowStep(hadToolCall ? 'llm2' : 'llm1');
       setStatusMsg(`请求中... (第${round + 1}轮)`);
+
+      const t0 = performance.now();
       const data = await callAPI(conversation, tools);
+      const llmMs = performance.now() - t0;
       const choice = data.choices[0];
       const content: string = choice.message.content || '';
 
-      // 检查 OpenAI 格式 tool_calls
       const apiToolCalls: ApiToolCall[] | null = choice.message.tool_calls || null;
-      // 检查 <tool_call> 标签
       const parsedCalls = parseToolCalls(content);
 
+      const detectedCalls: ToolCall[] = [];
       if (apiToolCalls && apiToolCalls.length > 0) {
-        // OpenAI 格式
-        conversation.push({ role: 'assistant', content, tool_calls: apiToolCalls });
-        const toolCallsParsed: ToolCall[] = apiToolCalls.map(tc => {
-          const args = typeof tc.function.arguments === 'string'
-            ? JSON.parse(tc.function.arguments)
-            : tc.function.arguments;
-          return { name: tc.function.name, arguments: args };
+        apiToolCalls.forEach(tc => {
+          const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
+          detectedCalls.push({ name: tc.function.name, arguments: args });
         });
-        addMsg({ role: 'assistant', content, toolCalls: toolCallsParsed });
-
-        for (const tc of apiToolCalls) {
-          const args = typeof tc.function.arguments === 'string'
-            ? JSON.parse(tc.function.arguments)
-            : tc.function.arguments;
-          const result = simulateTool(tc.function.name, args);
-          conversation.push({ role: 'tool', content: result });
-          addMsg({ role: 'tool', content: `${tc.function.name} → ${result}`, toolName: tc.function.name });
-        }
-        continue;
       } else if (parsedCalls.length > 0) {
-        // <tool_call> 标签格式
-        conversation.push({ role: 'assistant', content });
-        addMsg({ role: 'assistant', content, toolCalls: parsedCalls });
+        detectedCalls.push(...parsedCalls);
+      }
 
-        for (const call of parsedCalls) {
-          const result = simulateTool(call.name, call.arguments);
-          conversation.push({ role: 'tool', content: result });
-          addMsg({ role: 'tool', content: `${call.name} → ${result}`, toolName: call.name });
+      if (detectedCalls.length > 0) {
+        // LLM 检测到需要工具调用
+        addTrace('llm', `LLM 思考 (第${round + 1}轮)`, `检测到工具调用: ${detectedCalls.map(c => c.name).join(', ')}`);
+
+        if (apiToolCalls && apiToolCalls.length > 0) {
+          conversation.push({ role: 'assistant', content, tool_calls: apiToolCalls });
+        } else {
+          conversation.push({ role: 'assistant', content });
         }
+        addMsg({ role: 'assistant', content, toolCalls: detectedCalls, isMcp });
+
+        // ③ 工具调用
+        setFlowStep('tool');
+        for (const call of detectedCalls) {
+          addTrace('tool', '工具调用', `${call.name}(${JSON.stringify(call.arguments)})`);
+
+          const t1 = performance.now();
+          let result: string;
+          let mcpReq: object | undefined;
+          let mcpResp: object | undefined;
+
+          if (isMcp) {
+            const mcpResult = await mcpCallTool(call.name, call.arguments);
+            result = mcpResult.result;
+            mcpReq = mcpResult.request;
+            mcpResp = mcpResult.response;
+          } else {
+            result = simulateTool(call.name, call.arguments);
+          }
+          const toolMs = performance.now() - t1;
+
+          addTrace('tool_result', isMcp ? `MCP 返回 (+${fmtMs(toolMs)})` : `工具返回 (+${fmtMs(toolMs)})`, result);
+
+          conversation.push({ role: 'tool', content: result });
+          addMsg({
+            role: 'tool',
+            content: `${call.name} → ${result}`,
+            toolName: call.name,
+            isMcp,
+            mcpRequest: mcpReq,
+            mcpResponse: mcpResp,
+          });
+        }
+        hadToolCall = true;
         continue;
       } else {
-        // 无工具调用
+        // ⑤ 无工具调用 — 最终回答
+        addTrace('llm', hadToolCall ? `LLM 最终回答 (+${fmtMs(llmMs)})` : `LLM 回答 (+${fmtMs(llmMs)})`, content.slice(0, 60) + (content.length > 60 ? '...' : ''));
+        setFlowStep('reply');
         conversation.push({ role: 'assistant', content });
         addMsg({ role: 'assistant', content });
         break;
       }
     }
-  }, [getActiveTools, callAPI, addMsg, setStatusMsg]);
+
+    // 插入时间线
+    const totalMs = performance.now() - traceStart;
+    const trace: CallTrace = { steps: traceSteps, totalMs, mode: callMode };
+    addMsg({ role: 'trace', content: '', trace });
+
+    // 流程动画延迟恢复 idle
+    setTimeout(() => setFlowStep('idle'), 1500);
+  }, [getActiveTools, callAPI, addMsg, setStatusMsg, callMode]);
 
   // ==================== 发送 ====================
   const handleSend = useCallback(async () => {
@@ -288,6 +488,7 @@ export default function ToolPlaygroundSection() {
       const msg = e instanceof Error ? e.message : String(e);
       setStatusMsg('错误: ' + msg, 'error');
       addMsg({ role: 'system', content: '请求失败: ' + msg });
+      setFlowStep('idle');
     }
     setBusy(false);
   }, [busy, inputVal, sendWithTools, setStatusMsg, addMsg]);
@@ -304,6 +505,7 @@ export default function ToolPlaygroundSection() {
         const msg = e instanceof Error ? e.message : String(e);
         setStatusMsg('错误: ' + msg, 'error');
         addMsg({ role: 'system', content: '请求失败: ' + msg });
+        setFlowStep('idle');
       }
       setBusy(false);
     })();
@@ -313,6 +515,7 @@ export default function ToolPlaygroundSection() {
     setMessages([]);
     conversationRef.current = [];
     setMetrics(null);
+    setFlowStep('idle');
     setStatusMsg('对话已清空');
   }, [setStatusMsg]);
 
@@ -341,7 +544,6 @@ export default function ToolPlaygroundSection() {
         const tempConv: typeof conversationRef.current = [];
         await sendWithTools(tc.query, tempConv);
 
-        // 分析结果
         const assistantMsgs = tempConv.filter(m => m.role === 'assistant');
         const allToolCalls: ToolCall[] = [];
         assistantMsgs.forEach(m => {
@@ -393,14 +595,22 @@ export default function ToolPlaygroundSection() {
 
   // ==================== 渲染消息 ====================
   const renderMessage = useCallback((msg: ChatMessage, i: number) => {
+    // 时间线卡片
+    if (msg.role === 'trace' && msg.trace) {
+      return <TraceCard key={i} trace={msg.trace} />;
+    }
+
     const cls = `pg-msg pg-msg-${msg.role}`;
     return (
       <div key={i} className={cls}>
-        <div className="pg-msg-role">{msg.role}</div>
+        <div className="pg-msg-role">
+          {msg.role}
+          {msg.isMcp && <span className="pg-chip-badge">MCP</span>}
+        </div>
         {msg.toolCalls && msg.toolCalls.length > 0 ? (
           <>
             {msg.toolCalls.map((tc, j) => (
-              <div key={j} className="pg-tool-call">
+              <div key={j} className={`pg-tool-call${msg.isMcp ? ' mcp' : ''}`}>
                 <span className="pg-tc-name">{tc.name}</span>
                 <span className="pg-tc-args">({JSON.stringify(tc.arguments)})</span>
               </div>
@@ -410,7 +620,21 @@ export default function ToolPlaygroundSection() {
             )}
           </>
         ) : msg.role === 'tool' ? (
-          <div className="pg-tool-result">{msg.content}</div>
+          <>
+            <div className={`pg-tool-result${msg.isMcp ? ' mcp' : ''}`}>{msg.content}</div>
+            {msg.isMcp && msg.mcpRequest && (
+              <details className="pg-mcp-detail">
+                <summary>MCP 请求 JSON</summary>
+                <pre className="pg-mcp-json">{JSON.stringify(msg.mcpRequest, null, 2)}</pre>
+              </details>
+            )}
+            {msg.isMcp && msg.mcpResponse && (
+              <details className="pg-mcp-detail">
+                <summary>MCP 响应 JSON</summary>
+                <pre className="pg-mcp-json">{JSON.stringify(msg.mcpResponse, null, 2)}</pre>
+              </details>
+            )}
+          </>
         ) : (
           <div className="pg-msg-content" dangerouslySetInnerHTML={{ __html: escapeHtml(msg.content) }} />
         )}
@@ -439,6 +663,11 @@ export default function ToolPlaygroundSection() {
       </div>
     );
   }, [metrics]);
+
+  // 工具列表来源
+  const toolList = callMode === 'mcp' && mcpTools.length > 0
+    ? mcpTools
+    : TOOLS.map(t => ({ name: t.function.name, description: t.function.description }));
 
   return (
     <>
@@ -469,6 +698,12 @@ export default function ToolPlaygroundSection() {
           readOnly={presetIdx < PRESETS.length - 1}
         />
 
+        <label>调用模式:</label>
+        <div className="pg-mode-switch">
+          <button className={callMode === 'normal' ? 'active' : ''} onClick={() => setCallMode('normal')}>普通 Tool Calling</button>
+          <button className={callMode === 'mcp' ? 'active' : ''} onClick={() => setCallMode('mcp')}>MCP Tool Calling</button>
+        </div>
+
         <div className="pg-range-group">
           <label>Temp:</label>
           <input type="range" min="0" max="1" step="0.05" value={temperature} onChange={e => setTemperature(Number(e.target.value))} />
@@ -484,17 +719,31 @@ export default function ToolPlaygroundSection() {
 
       {/* 工具 chip */}
       <div className="pg-chips">
-        <span style={{ fontSize: '0.78rem', color: 'var(--fg3)', lineHeight: '28px', marginRight: 4 }}>启用工具:</span>
-        {TOOLS.map(t => (
+        <span style={{ fontSize: '0.78rem', color: 'var(--fg3)', lineHeight: '28px', marginRight: 4 }}>
+          启用工具{callMode === 'mcp' ? ' (MCP)' : ''}:
+        </span>
+        {toolList.map(t => (
           <button
-            key={t.function.name}
-            className={`pg-chip${enabledTools.has(t.function.name) ? ' active' : ''}`}
-            onClick={() => toggleTool(t.function.name)}
-            title={t.function.description}
+            key={t.name}
+            className={`pg-chip${enabledTools.has(t.name) ? ' active' : ''}`}
+            onClick={() => toggleTool(t.name)}
+            title={t.description}
           >
-            {t.function.name}
+            {t.name}
+            {callMode === 'mcp' && <span className="pg-chip-badge">MCP</span>}
           </button>
         ))}
+      </div>
+
+      {/* 流程动画面板 */}
+      <div className="pg-flow-panel">
+        <div className={`pg-flow-header${flowOpen ? ' open' : ''}`} onClick={() => setFlowOpen(v => !v)}>
+          <span><span className="arrow">▶</span> 调用流程</span>
+          <span style={{ fontSize: '0.72rem', color: 'var(--fg3)' }}>
+            {flowStep === 'idle' ? '等待请求...' : `步骤: ${flowStep}`}
+          </span>
+        </div>
+        {flowOpen && <FlowAnimation activeStep={flowStep} mode={callMode} />}
       </div>
 
       {/* 快捷按钮 */}

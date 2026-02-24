@@ -16,11 +16,13 @@ import os
 import sys
 import json
 import time
+import uuid
 import signal
 import subprocess
 import threading
 from pathlib import Path
 from typing import Optional
+from datetime import datetime, timezone, timedelta
 
 import uvicorn
 from fastapi import FastAPI
@@ -313,6 +315,143 @@ async def npu_status():
         return {"raw": "npu-smi 不可用", "devices": []}
     except Exception as e:
         return {"raw": str(e), "devices": []}
+
+
+# ==================== MCP 代理接口 ====================
+
+# MCP 工具定义
+MCP_TOOLS = [
+    {
+        "name": "get_weather",
+        "description": "获取指定城市的天气信息",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"city": {"type": "string", "description": "城市名称"}},
+            "required": ["city"],
+        },
+    },
+    {
+        "name": "calculate",
+        "description": "计算数学表达式的结果",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"expression": {"type": "string", "description": "数学表达式"}},
+            "required": ["expression"],
+        },
+    },
+    {
+        "name": "search",
+        "description": "搜索互联网获取相关信息",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "搜索关键词"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_time",
+        "description": "获取当前时间或指定时区的时间",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"timezone": {"type": "string", "description": "时区，如 Asia/Shanghai", "default": "Asia/Shanghai"}},
+            "required": [],
+        },
+    },
+]
+
+
+def mcp_execute_tool(name: str, arguments: dict) -> tuple[str, bool]:
+    """执行 MCP 工具，返回 (结果文本, 是否出错)"""
+    try:
+        if name == "get_weather":
+            city = arguments.get("city", "未知")
+            # 模拟天气数据（结构化 JSON）
+            import random
+            weather_data = {
+                "city": city,
+                "weather": random.choice(["晴", "多云", "阴", "小雨"]),
+                "temperature": random.randint(15, 35),
+                "humidity": random.randint(30, 80),
+                "wind": random.choice(["东风", "南风", "西风", "北风"]) + str(random.randint(1, 5)) + "级",
+                "aqi": random.randint(20, 150),
+            }
+            return json.dumps(weather_data, ensure_ascii=False), False
+        elif name == "calculate":
+            expr = str(arguments.get("expression", "0"))
+            import re
+            if not re.match(r'^[\d\s+\-*/().%]+$', expr):
+                return "不支持的表达式（仅允许数字和基本运算符）", True
+            result = eval(expr)  # noqa: S307 — 受限表达式
+            return str(result), False
+        elif name == "search":
+            query = arguments.get("query", "")
+            results = [
+                {"title": f"关于「{query}」的最新资讯", "snippet": f"这是一条与「{query}」相关的搜索结果摘要。"},
+                {"title": f"「{query}」- 百科介绍", "snippet": f"「{query}」的详细百科介绍内容。"},
+                {"title": f"「{query}」相关讨论", "snippet": f"社区中关于「{query}」的热门讨论。"},
+            ]
+            return json.dumps(results, ensure_ascii=False), False
+        elif name == "get_time":
+            tz = arguments.get("timezone", "Asia/Shanghai")
+            # 常用时区偏移映射（避免依赖 pytz）
+            tz_offsets = {
+                "Asia/Shanghai": 8, "Asia/Tokyo": 9, "Asia/Seoul": 9,
+                "Asia/Singapore": 8, "Asia/Hong_Kong": 8,
+                "US/Eastern": -5, "US/Pacific": -8, "Europe/London": 0,
+                "Europe/Berlin": 1, "Europe/Paris": 1, "UTC": 0,
+            }
+            offset_h = tz_offsets.get(tz, 8)  # 默认东八区
+            now = datetime.now(timezone(timedelta(hours=offset_h)))
+            return f"当前时间（{tz}）：{now.strftime('%Y-%m-%d %H:%M:%S')}", False
+        else:
+            return f"未知工具: {name}", True
+    except Exception as e:
+        return f"工具执行异常: {e}", True
+
+
+class MCPToolCallRequest(BaseModel):
+    name: str
+    arguments: dict = {}
+
+
+@app.get("/api/mcp/info")
+async def mcp_info():
+    """返回 MCP Server 基本信息"""
+    return {
+        "jsonrpc": "2.0",
+        "id": str(uuid.uuid4()),
+        "result": {
+            "name": "minimind-mcp-server",
+            "version": "1.0.0",
+            "description": "MiniMind MCP 工具代理服务（教学演示）",
+            "capabilities": {"tools": True},
+        },
+    }
+
+
+@app.get("/api/mcp/tools/list")
+async def mcp_tools_list():
+    """返回 MCP 格式的工具列表"""
+    return {
+        "jsonrpc": "2.0",
+        "id": str(uuid.uuid4()),
+        "result": {"tools": MCP_TOOLS},
+    }
+
+
+@app.post("/api/mcp/tools/call")
+async def mcp_tools_call(req: MCPToolCallRequest):
+    """执行工具调用，返回 MCP 格式结果"""
+    call_id = f"call_{uuid.uuid4().hex[:12]}"
+    text, is_error = mcp_execute_tool(req.name, req.arguments)
+    return {
+        "jsonrpc": "2.0",
+        "id": call_id,
+        "result": {
+            "content": [{"type": "text", "text": text}],
+            "isError": is_error,
+        },
+    }
 
 
 if __name__ == "__main__":

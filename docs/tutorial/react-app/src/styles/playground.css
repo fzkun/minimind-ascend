@@ -475,6 +475,269 @@
   color: #fbbf24;
 }
 
+/* ========== 模式切换 ========== */
+.pg-mode-switch {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-left: 8px;
+}
+.pg-mode-switch button {
+  padding: 5px 14px;
+  border: none;
+  background: var(--bg);
+  color: var(--fg2);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.pg-mode-switch button + button {
+  border-left: 1px solid var(--border);
+}
+.pg-mode-switch button.active {
+  background: var(--accent);
+  color: #fff;
+}
+.pg-mode-switch button:hover:not(.active) {
+  background: var(--bg2);
+}
+
+.pg-chip-badge {
+  font-size: 0.6rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  font-weight: 600;
+  vertical-align: middle;
+  background: var(--accent3);
+  color: #fff;
+}
+
+/* ========== 流程动画面板 ========== */
+.pg-flow-panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.pg-flow-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.8rem;
+  color: var(--fg2);
+  transition: color 0.2s;
+}
+.pg-flow-header:hover { color: var(--accent); }
+.pg-flow-header .arrow {
+  transition: transform 0.2s;
+  display: inline-block;
+  margin-right: 6px;
+}
+.pg-flow-header.open .arrow { transform: rotate(90deg); }
+
+.pg-flow-body {
+  padding: 12px 20px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  overflow-x: auto;
+}
+
+.pg-flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  height: 56px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 0.72rem;
+  color: var(--fg3);
+  transition: all 0.3s;
+  flex-shrink: 0;
+  text-align: center;
+  line-height: 1.3;
+  padding: 4px;
+}
+.pg-flow-node.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: pg-pulse 1.2s ease-in-out infinite;
+}
+.pg-flow-node.done {
+  border-color: var(--green);
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 6%, var(--bg));
+}
+.pg-flow-node .pg-flow-icon {
+  font-size: 1rem;
+  margin-bottom: 2px;
+}
+
+@keyframes pg-pulse {
+  0%, 100% { box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 30%, transparent); }
+  50% { box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 50%, transparent); }
+}
+
+.pg-flow-arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.pg-flow-arrow svg {
+  width: 36px;
+  height: 16px;
+}
+.pg-flow-arrow line,
+.pg-flow-arrow polygon {
+  stroke: var(--border);
+  fill: var(--border);
+  transition: all 0.3s;
+}
+.pg-flow-arrow.active line,
+.pg-flow-arrow.active polygon {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+.pg-flow-arrow.done line,
+.pg-flow-arrow.done polygon {
+  stroke: var(--green);
+  fill: var(--green);
+}
+
+/* ========== 调用时间线 ========== */
+.pg-trace {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent2);
+  border-radius: 0 6px 6px 0;
+  padding: 10px 14px;
+  margin: 8px 0 12px;
+  font-size: 0.78rem;
+}
+.pg-trace-title {
+  font-weight: 600;
+  color: var(--fg2);
+  margin-bottom: 8px;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pg-trace-total {
+  font-family: monospace;
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 0.75rem;
+}
+.pg-trace-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 3px 0;
+  position: relative;
+}
+.pg-trace-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  margin-top: 4px;
+  position: relative;
+  z-index: 1;
+}
+.pg-trace-dot.tool { background: var(--orange); }
+.pg-trace-dot.mcp { background: var(--accent3); }
+.pg-trace-dot.result { background: var(--green); }
+.pg-trace-dot.reply { background: var(--accent2); }
+
+.pg-trace-line {
+  position: absolute;
+  left: 3.5px;
+  top: 14px;
+  bottom: -5px;
+  width: 1px;
+  background: var(--border);
+}
+.pg-trace-step:last-child .pg-trace-line { display: none; }
+
+.pg-trace-label {
+  flex: 1;
+  color: var(--fg);
+  line-height: 1.4;
+}
+.pg-trace-label code {
+  font-family: monospace;
+  font-size: 0.74rem;
+  color: var(--fg2);
+  background: var(--bg);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.pg-trace-time {
+  font-family: monospace;
+  color: var(--fg3);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  min-width: 55px;
+  text-align: right;
+}
+
+/* ========== MCP 协议详情 ========== */
+.pg-mcp-detail {
+  margin: 4px 0;
+}
+.pg-mcp-detail summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--accent3);
+  user-select: none;
+  padding: 2px 0;
+}
+.pg-mcp-detail summary:hover { text-decoration: underline; }
+.pg-mcp-json {
+  background: color-mix(in srgb, var(--accent3) 6%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--accent3) 20%, var(--border));
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--fg2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* MCP 模式工具调用/结果卡片 */
+.pg-tool-call.mcp {
+  border-left-color: var(--accent3);
+  background: color-mix(in srgb, var(--accent3) 8%, var(--bg));
+}
+.pg-tool-call.mcp .pg-tc-name {
+  color: var(--accent3);
+}
+.pg-tool-result.mcp {
+  border-left-color: var(--accent3);
+  background: color-mix(in srgb, var(--accent3) 8%, var(--bg));
+}
+
 /* ========== 响应式 ========== */
 @media (max-width: 768px) {
   .tm-layout {
