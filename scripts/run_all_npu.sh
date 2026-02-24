@@ -504,25 +504,32 @@ stage_web() {
         return 1
     fi
 
+    # 复制后端到构建上下文
+    cp "$PROJECT_DIR/scripts/serve_train_manager.py" "$web_dir/serve_train_manager.py"
+
     # 构建 Docker 镜像
-    log_info "构建前端 Docker 镜像: $WEB_IMAGE_NAME"
+    log_info "构建 Docker 镜像: $WEB_IMAGE_NAME（含前端 + 后端）"
     run_cmd docker build -t "$WEB_IMAGE_NAME" "$web_dir"
+
+    # 清理临时文件
+    rm -f "$web_dir/serve_train_manager.py"
 
     # 停止已有容器
     if docker ps -q --filter "name=$WEB_CONTAINER_NAME" | grep -q .; then
-        log_info "停止已有前端容器: $WEB_CONTAINER_NAME"
+        log_info "停止已有容器: $WEB_CONTAINER_NAME"
         docker stop "$WEB_CONTAINER_NAME" >/dev/null 2>&1 || true
         sleep 1
     fi
     docker rm -f "$WEB_CONTAINER_NAME" >/dev/null 2>&1 || true
 
-    # 启动容器（--network=host 模式下 nginx 可直接代理 127.0.0.1:8999/8000）
-    log_info "启动前端服务 (端口: $WEB_PORT, 镜像: $WEB_IMAGE_NAME)"
+    # 启动容器（--network=host: nginx 代理本机 vLLM:8000，后端内置 :8999）
+    log_info "启动 Web 服务 (端口: $WEB_PORT, 镜像: $WEB_IMAGE_NAME)"
     run_cmd docker run -d --rm \
         --name "$WEB_CONTAINER_NAME" \
         --network=host \
         -e WEB_PORT="$WEB_PORT" \
-        -v "$web_dir/nginx.conf:/etc/nginx/templates/default.conf.template:ro" \
+        -v "$PROJECT_DIR/out:/app/out:ro" \
+        -v "$PROJECT_DIR/dataset:/app/dataset:ro" \
         "$WEB_IMAGE_NAME"
 
     if [ "$DRY_RUN" -eq 1 ]; then
