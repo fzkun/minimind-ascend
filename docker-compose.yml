@@ -1,0 +1,73 @@
+# MiniMind 一键部署：vLLM 推理 + Web 前端/后端
+#
+# 使用前提：
+#   1. 已完成模型转换（bash scripts/run_all_npu.sh convert）
+#   2. out/minimind-moe-hf/ 或 out/minimind-hf/ 目录存在
+#
+# 启动：
+#   docker compose up -d
+#
+# MoE 模型（默认）：
+#   docker compose up -d
+#
+# Dense 模型：
+#   MODEL_DIR=./out/minimind-hf MODEL_NAME=minimind docker compose up -d
+#
+# 自定义端口：
+#   WEB_PORT=3000 docker compose up -d
+#
+# 查看日志：
+#   docker compose logs -f
+#
+# 停止：
+#   docker compose down
+
+services:
+  # ── vLLM 推理服务（端口 8000）──
+  vllm:
+    image: quay.io/ascend/vllm-ascend:v0.13.0
+    container_name: vllm-minimind
+    network_mode: host
+    shm_size: "1g"
+    restart: unless-stopped
+    devices:
+      - /dev/davinci0
+      - /dev/davinci_manager
+      - /dev/devmm_svm
+      - /dev/hisi_hdc
+    volumes:
+      - /usr/local/dcmi:/usr/local/dcmi:ro
+      - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro
+      - /usr/local/sbin/npu-smi:/usr/local/sbin/npu-smi:ro
+      - /usr/local/Ascend/driver/lib64/:/usr/local/Ascend/driver/lib64/:ro
+      - /usr/local/Ascend/driver/version.info:/usr/local/Ascend/driver/version.info:ro
+      - /etc/ascend_install.info:/etc/ascend_install.info:ro
+      - ${MODEL_DIR:-./out/minimind-moe-hf}:/models/minimind:ro
+    command: >
+      vllm serve /models/minimind
+        --served-model-name ${MODEL_NAME:-minimind-moe}
+        --host 0.0.0.0
+        --port 8000
+        --dtype float16
+        --max-model-len ${MAX_MODEL_LEN:-2048}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ── Web 前端 + 后端（默认端口 8080）──
+  web:
+    image: 192.168.0.81:3001/ascend/minimind-web:latest
+    container_name: minimind-web
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      vllm:
+        condition: service_healthy
+    environment:
+      - WEB_PORT=${WEB_PORT:-8080}
+    volumes:
+      - ./out:/app/out:ro
+      - ./dataset:/app/dataset:ro
