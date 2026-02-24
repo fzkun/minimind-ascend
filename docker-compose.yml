@@ -7,9 +7,6 @@
 # 启动：
 #   docker compose up -d
 #
-# MoE 模型（默认）：
-#   docker compose up -d
-#
 # Dense 模型：
 #   MODEL_DIR=./out/minimind-hf MODEL_NAME=minimind docker compose up -d
 #
@@ -23,13 +20,14 @@
 #   docker compose down
 
 services:
-  # ── vLLM 推理服务（端口 8000）──
+  # ── vLLM 推理服务 ──
   vllm:
     image: quay.io/ascend/vllm-ascend:v0.13.0
     container_name: vllm-minimind
-    network_mode: host
     shm_size: "1g"
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     devices:
       - /dev/davinci0
       - /dev/davinci_manager
@@ -57,17 +55,18 @@ services:
       retries: 30
       start_period: 60s
 
-  # ── Web 前端 + 后端（默认端口 8080）──
+  # ── Web 前端 + 后端 ──
   web:
     image: 192.168.0.81:3001/ascend/minimind-web:latest
     container_name: minimind-web
-    network_mode: host
     restart: unless-stopped
     depends_on:
       vllm:
         condition: service_healthy
+    ports:
+      - "${WEB_PORT:-5173}:80"
     environment:
-      - WEB_PORT=${WEB_PORT:-8080}
+      - VLLM_UPSTREAM=vllm:8000
     volumes:
       - ./out:/app/out:ro
       - ./dataset:/app/dataset:ro

@@ -65,7 +65,7 @@ VLLM_IMAGE="quay.io/ascend/vllm-ascend:v0.13.0"
 VLLM_PORT=8000
 MAX_MODEL_LEN=2048
 VLLM_CONTAINER_NAME="vllm-minimind"
-WEB_PORT=8080
+WEB_PORT=5173
 WEB_IMAGE_NAME="192.168.0.81:3001/ascend/minimind-web:latest"
 WEB_CONTAINER_NAME="minimind-web"
 
@@ -522,12 +522,12 @@ stage_web() {
     fi
     docker rm -f "$WEB_CONTAINER_NAME" >/dev/null 2>&1 || true
 
-    # 启动容器（--network=host: nginx 代理本机 vLLM:8000，后端内置 :8999）
-    log_info "启动 Web 服务 (端口: $WEB_PORT, 镜像: $WEB_IMAGE_NAME)"
+    # 启动容器（端口映射模式，VLLM_UPSTREAM 默认 127.0.0.1:8000）
+    log_info "启动 Web 服务 (端口: $WEB_PORT → 容器:80, 镜像: $WEB_IMAGE_NAME)"
     run_cmd docker run -d --rm \
         --name "$WEB_CONTAINER_NAME" \
-        --network=host \
-        -e WEB_PORT="$WEB_PORT" \
+        -p "$WEB_PORT:80" \
+        -e VLLM_UPSTREAM="127.0.0.1:8000" \
         -v "$PROJECT_DIR/out:/app/out:ro" \
         -v "$PROJECT_DIR/dataset:/app/dataset:ro" \
         "$WEB_IMAGE_NAME"
