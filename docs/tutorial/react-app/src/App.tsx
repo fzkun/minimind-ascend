@@ -13,6 +13,8 @@ const sections = [
   lazy(() => import('./sections/ForwardPassSection')),
   lazy(() => import('./sections/DeploySection')),
   lazy(() => import('./sections/NPUDockerSection')),
+  lazy(() => import('./sections/ToolPlaygroundSection')),
+  lazy(() => import('./sections/TrainManagerSection')),
 ];
 
 export default function App() {
