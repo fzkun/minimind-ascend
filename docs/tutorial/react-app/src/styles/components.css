@@ -25,8 +25,15 @@
 }
 .tab-btn:hover { background: var(--bg3); color: var(--fg); }
 .tab-btn.active { background: var(--accent); color: #fff; }
+.github-link {
+  margin-left: auto; color: var(--fg2); display: flex; align-items: center;
+  justify-content: center; width: 36px; height: 36px; border-radius: 50%;
+  background: var(--bg3); border: 1px solid var(--border); flex-shrink: 0;
+  transition: all var(--transition);
+}
+.github-link:hover { border-color: var(--accent); color: var(--accent); }
 .theme-toggle {
-  margin-left: auto; background: var(--bg3); border: 1px solid var(--border);
+  background: var(--bg3); border: 1px solid var(--border);
   border-radius: 50%; width: 36px; height: 36px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
   flex-shrink: 0; transition: all var(--transition);
