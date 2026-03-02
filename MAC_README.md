@@ -40,6 +40,11 @@ uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 | 11 | **`11_test_sft`** | 测试 SFT 模型（对话） |
 | 12 | **`12_test_lora`** | 测试 LoRA 模型（对话） |
 | 13 | **`13_test_reason`** | 测试推理模型（思维链） |
+| 14 | **`14_test_dpo`** | 测试 DPO 模型（对话） |
+| 15 | **`15_test_distill`** | 测试蒸馏学生模型（对话） |
+| 16 | **`16_test_ppo`** | 测试 PPO 模型（推理） |
+| 17 | **`17_test_grpo`** | 测试 GRPO 模型（推理） |
+| 18 | **`18_test_spo`** | 测试 SPO 模型（推理） |
 
 > \* PPO/GRPO/SPO 默认使用 `--reward_mode mock`（随机分数），Mac CPU 可直接运行。
 
@@ -364,11 +369,11 @@ python train_grpo.py --data_path ../dataset/rlaif_debug.jsonl --reward_mode api 
 ## 15. 完整流程
 
 ```
-预训练 → SFT → LoRA → 推理蒸馏 → DPO → PPO/GRPO/SPO
-  ↓       ↓      ↓       ↓        ↓
-  01      02     03      04       05~09  (debug_*)
-  ↓       ↓      ↓       ↓
-  10      11     12      13              (test_*)
+预训练 → SFT → LoRA → 推理蒸馏 → DPO → 蒸馏 → PPO/GRPO/SPO
+  ↓       ↓      ↓       ↓        ↓      ↓       ↓
+  01      02     03      04       05     06      07~09  (debug_*)
+  ↓       ↓      ↓       ↓        ↓      ↓       ↓
+  10      11     12      13       14     15      16~18  (test_*)
 ```
 
 1. **`01_debug_pretrain`** — 训练预训练模型（学会"语言"）
@@ -378,7 +383,7 @@ python train_grpo.py --data_path ../dataset/rlaif_debug.jsonl --reward_mode api 
 5. **`05_debug_dpo`** — DPO 偏好优化（学会"人类偏好"）
 6. **`06_debug_distill`** — 知识蒸馏（大模型教小模型）
 7. **`07~09_debug_ppo/grpo/spo`** — 强化学习（mock 模式，CPU 可跑）
-8. **`10~13_test_*`** — 分别测试各阶段模型的推理效果
+8. **`10~18_test_*`** — 分别测试各阶段模型的推理效果
 
 > 调试模式下各步骤可独立运行（`--from_weight none`），无需等前一步完成。
 
