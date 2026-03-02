@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="6_test_sft" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="12_test_lora" type="PythonConfigurationType" factoryName="Python">
     <module name="minimind" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
@@ -8,7 +8,7 @@
     <option name="IS_MODULE_SDK_INHERITED" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/test_sft.py" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/test_lora.py" />
     <option name="PARAMETERS" value="--device cpu --max_new_tokens 100" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />

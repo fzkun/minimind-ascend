@@ -27,14 +27,21 @@ uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 
 | 编号 | 配置名 | 用途 |
 |------|--------|------|
-| 1 | **`1_debug_pretrain`** | 预训练调试 |
-| 2 | **`2_debug_sft`** | SFT 微调调试 |
-| 3 | **`3_debug_lora`** | LoRA 微调调试 |
-| 4 | **`4_debug_reason`** | 推理蒸馏调试 |
-| 5 | **`5_test_pretrain`** | 测试预训练模型（续写） |
-| 6 | **`6_test_sft`** | 测试 SFT 模型（对话） |
-| 7 | **`7_test_lora`** | 测试 LoRA 模型（对话） |
-| 8 | **`8_test_reason`** | 测试推理模型（思维链） |
+| 01 | **`01_debug_pretrain`** | 预训练调试 |
+| 02 | **`02_debug_sft`** | SFT 微调调试 |
+| 03 | **`03_debug_lora`** | LoRA 微调调试 |
+| 04 | **`04_debug_reason`** | 推理蒸馏调试 |
+| 05 | **`05_debug_dpo`** | DPO 偏好优化调试 |
+| 06 | **`06_debug_distill`** | 知识蒸馏调试 |
+| 07 | **`07_debug_ppo`** | PPO 强化学习调试 * |
+| 08 | **`08_debug_grpo`** | GRPO 强化学习调试 * |
+| 09 | **`09_debug_spo`** | SPO 强化学习调试 * |
+| 10 | **`10_test_pretrain`** | 测试预训练模型（续写） |
+| 11 | **`11_test_sft`** | 测试 SFT 模型（对话） |
+| 12 | **`12_test_lora`** | 测试 LoRA 模型（对话） |
+| 13 | **`13_test_reason`** | 测试推理模型（思维链） |
+
+> \* PPO/GRPO/SPO 需要外部 reward model（internlm2-1_8b-reward），Mac 上暂无法运行。
 
 ## 3. 统一训练脚本
 
@@ -61,7 +68,9 @@ python train.py --task reason --device cpu ...
 ### 一键烟雾测试
 
 ```bash
-# 跑通全部 4 种训练任务（CPU 上约 1 分钟）
+# 跑通全部 6 种训练任务（CPU 上约 1 分钟）
+# 包含: pretrain, sft, lora, reason, dpo, distillation
+# PPO/GRPO/SPO 需要 reward model，跳过
 bash trainer/test_train.sh
 ```
 
@@ -87,7 +96,7 @@ python train.py --task pretrain \
 
 ### PyCharm 方式
 
-右上角选 **`1_debug_pretrain`**，直接点 Debug 按钮即可打断点。
+右上角选 **`01_debug_pretrain`**，直接点 Debug 按钮即可打断点。
 
 ### 参数说明
 
@@ -115,7 +124,7 @@ python scripts/test_pretrain.py --device cpu
 python scripts/test_pretrain.py --device cpu --prompt "从前有座山"
 ```
 
-PyCharm 方式：右上角选 **`5_test_pretrain`**。
+PyCharm 方式：右上角选 **`10_test_pretrain`**。
 
 ## 6. SFT 微调调试
 
@@ -142,7 +151,7 @@ python train.py --task sft \
 
 ### PyCharm 方式
 
-右上角选 **`2_debug_sft`**，直接点 Debug 按钮即可打断点。
+右上角选 **`02_debug_sft`**，直接点 Debug 按钮即可打断点。
 
 > `--from_weight none` 表示不加载预训练权重，直接从随机初始化开始 SFT。调试时这样最方便，正式训练应该用 `--from_weight pretrain` 加载预训练好的权重。
 
@@ -158,7 +167,7 @@ python scripts/test_sft.py --device cpu
 python scripts/test_sft.py --device cpu --mode chat
 ```
 
-PyCharm 方式：右上角选 **`6_test_sft`**。
+PyCharm 方式：右上角选 **`11_test_sft`**。
 
 ## 8. LoRA 微调调试
 
@@ -185,7 +194,7 @@ python train.py --task lora \
 
 ### PyCharm 方式
 
-右上角选 **`3_debug_lora`**，直接点 Debug 按钮即可打断点。
+右上角选 **`03_debug_lora`**，直接点 Debug 按钮即可打断点。
 
 ### LoRA 专用参数
 
@@ -207,7 +216,7 @@ python scripts/test_lora.py --device cpu --lora_name lora_medical
 python scripts/test_lora.py --device cpu --mode chat
 ```
 
-PyCharm 方式：右上角选 **`7_test_lora`**。
+PyCharm 方式：右上角选 **`12_test_lora`**。
 
 ## 10. 推理蒸馏调试
 
@@ -234,7 +243,7 @@ python train.py --task reason \
 
 ### PyCharm 方式
 
-右上角选 **`4_debug_reason`**，直接点 Debug 按钮即可打断点。
+右上角选 **`04_debug_reason`**，直接点 Debug 按钮即可打断点。
 
 ## 11. 测试推理模型
 
@@ -246,27 +255,95 @@ python scripts/test_reason.py --device cpu
 python scripts/test_reason.py --device cpu --mode chat
 ```
 
-PyCharm 方式：右上角选 **`8_test_reason`**。
+PyCharm 方式：右上角选 **`13_test_reason`**。
 
-## 12. 完整流程
+## 12. DPO 偏好优化调试
+
+DPO（Direct Preference Optimization）通过 chosen/rejected 对比数据让模型学会偏好。需要策略模型和冻结的参考模型。
+
+### 命令行方式
+
+```bash
+cd trainer
+python train_dpo.py \
+    --data_path ../dataset/dpo_debug.jsonl \
+    --from_weight none \
+    --batch_size 2 \
+    --accumulation_steps 1 \
+    --num_workers 0 \
+    --epochs 1 \
+    --log_interval 1 \
+    --save_interval 50 \
+    --hidden_size 512 \
+    --num_hidden_layers 2 \
+    --max_seq_len 128 \
+    --device cpu
+```
+
+### PyCharm 方式
+
+右上角选 **`05_debug_dpo`**，直接点 Debug 按钮即可打断点。
+
+## 13. 知识蒸馏调试
+
+知识蒸馏（Knowledge Distillation）用大模型（教师）指导小模型（学生）学习，混合 CE Loss 和 KL 散度。
+
+### 命令行方式
+
+```bash
+cd trainer
+python train_distillation.py \
+    --data_path ../dataset/sft_mini_512_debug.jsonl \
+    --from_student_weight none \
+    --from_teacher_weight none \
+    --batch_size 2 \
+    --accumulation_steps 1 \
+    --num_workers 0 \
+    --epochs 1 \
+    --log_interval 1 \
+    --save_interval 50 \
+    --student_hidden_size 512 \
+    --student_num_layers 2 \
+    --teacher_hidden_size 512 \
+    --teacher_num_layers 2 \
+    --max_seq_len 128 \
+    --device cpu
+```
+
+### PyCharm 方式
+
+右上角选 **`06_debug_distill`**，直接点 Debug 按钮即可打断点。
+
+> 调试时教师和学生用同样大小的模型（512/2 层），正式训练教师应更大（如 768/16 层）。
+
+## 14. PPO / GRPO / SPO（需要 reward model）
+
+这三个强化学习训练脚本需要外部 reward model（`internlm2-1_8b-reward`），Mac CPU 上暂无法运行。
+
+PyCharm 配置已准备好：**`07_debug_ppo`**、**`08_debug_grpo`**、**`09_debug_spo`**，在有 GPU + reward model 的环境可直接使用。
+
+## 15. 完整流程
 
 ```
-预训练 → SFT → LoRA → 推理蒸馏
+预训练 → SFT → LoRA → 推理蒸馏 → DPO → PPO/GRPO/SPO
+  ↓       ↓      ↓       ↓        ↓
+  01      02     03      04       05~09  (debug_*)
   ↓       ↓      ↓       ↓
-  1       2      3       4    (debug_*)
-  ↓       ↓      ↓       ↓
-  5       6      7       8    (test_*)
+  10      11     12      13              (test_*)
 ```
 
-1. **`1_debug_pretrain`** — 训练预训练模型（学会"语言"）
-2. **`2_debug_sft`** — SFT 微调（学会"回答问题"）
-3. **`3_debug_lora`** — LoRA 微调（轻量适配特定场景）
-4. **`4_debug_reason`** — 推理蒸馏（学会"先想后答"）
-5. **`5~8_test_*`** — 分别测试各阶段模型的推理效果
+1. **`01_debug_pretrain`** — 训练预训练模型（学会"语言"）
+2. **`02_debug_sft`** — SFT 微调（学会"回答问题"）
+3. **`03_debug_lora`** — LoRA 微调（轻量适配特定场景）
+4. **`04_debug_reason`** — 推理蒸馏（学会"先想后答"）
+5. **`05_debug_dpo`** — DPO 偏好优化（学会"人类偏好"）
+6. **`06_debug_distill`** — 知识蒸馏（大模型教小模型）
+7. **`07~09_debug_ppo/grpo/spo`** — 强化学习（需 reward model）
+8. **`10~13_test_*`** — 分别测试各阶段模型的推理效果
 
 > 调试模式下各步骤可独立运行（`--from_weight none`），无需等前一步完成。
 
-## 13. 注意事项
+## 16. 注意事项
 
 - Mac 没有 CUDA，只能用 `--device cpu`，速度较慢但功能完整
 - `num_workers=0` 是 PyCharm 断点调试的关键，否则 DataLoader 子进程里的断点不会触发

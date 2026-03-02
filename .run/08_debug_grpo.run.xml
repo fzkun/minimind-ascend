@@ -1,15 +1,15 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="8_test_reason" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="08_debug_grpo" type="PythonConfigurationType" factoryName="Python">
     <module name="minimind" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <option name="SDK_HOME" value="" />
-    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/trainer" />
     <option name="IS_MODULE_SDK_INHERITED" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/test_reason.py" />
-    <option name="PARAMETERS" value="--device cpu --max_new_tokens 200" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/trainer/train_grpo.py" />
+    <option name="PARAMETERS" value="--data_path ../dataset/rlaif_debug.jsonl --batch_size 2 --accumulation_steps 1 --num_workers 0 --epochs 1 --log_interval 1 --save_interval 50 --hidden_size 512 --num_hidden_layers 2 --max_seq_len 32 --max_gen_len 64 --num_generations 2 --device cpu" />
     <option name="SHOW_COMMAND_LINE" value="false" />
     <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
