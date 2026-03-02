@@ -41,7 +41,7 @@ uv pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
 | 12 | **`12_test_lora`** | 测试 LoRA 模型（对话） |
 | 13 | **`13_test_reason`** | 测试推理模型（思维链） |
 
-> \* PPO/GRPO/SPO 需要外部 reward model（internlm2-1_8b-reward），Mac 上暂无法运行。
+> \* PPO/GRPO/SPO 默认使用 `--reward_mode mock`（随机分数），Mac CPU 可直接运行。
 
 ## 3. 统一训练脚本
 
@@ -68,9 +68,8 @@ python train.py --task reason --device cpu ...
 ### 一键烟雾测试
 
 ```bash
-# 跑通全部 6 种训练任务（CPU 上约 1 分钟）
-# 包含: pretrain, sft, lora, reason, dpo, distillation
-# PPO/GRPO/SPO 需要 reward model，跳过
+# 跑通全部 9 种训练任务（CPU 上约 2-3 分钟）
+# 包含: pretrain, sft, lora, reason, dpo, distillation, ppo, grpo, spo
 bash trainer/test_train.sh
 ```
 
@@ -316,11 +315,51 @@ python train_distillation.py \
 
 > 调试时教师和学生用同样大小的模型（512/2 层），正式训练教师应更大（如 768/16 层）。
 
-## 14. PPO / GRPO / SPO（需要 reward model）
+## 14. PPO / GRPO / SPO 强化学习调试
 
-这三个强化学习训练脚本需要外部 reward model（`internlm2-1_8b-reward`），Mac CPU 上暂无法运行。
+三个强化学习训练脚本通过 `--reward_mode` 参数切换奖励模型：
 
-PyCharm 配置已准备好：**`07_debug_ppo`**、**`08_debug_grpo`**、**`09_debug_spo`**，在有 GPU + reward model 的环境可直接使用。
+| 模式 | 用途 | 依赖 |
+|------|------|------|
+| `mock` | 随机分数，调试训练循环 | 无（Mac CPU 可跑） |
+| `api` | 调用 OpenAI 兼容 API 打分 | LiteLLM / GLM-4.7 等 |
+| `local` | 加载本地 HF 模型（默认） | internlm2-1_8b-reward |
+
+### 命令行方式（Mock 模式）
+
+```bash
+cd trainer
+
+# PPO
+python train_ppo.py --data_path ../dataset/rlaif_debug.jsonl --reward_mode mock \
+    --batch_size 2 --num_workers 0 --epochs 1 --num_hidden_layers 2 \
+    --max_seq_len 32 --max_gen_len 64 --device cpu
+
+# GRPO
+python train_grpo.py --data_path ../dataset/rlaif_debug.jsonl --reward_mode mock \
+    --batch_size 2 --num_workers 0 --epochs 1 --num_hidden_layers 2 \
+    --max_seq_len 32 --max_gen_len 64 --num_generations 2 --device cpu
+
+# SPO
+python train_spo.py --data_path ../dataset/rlaif_debug.jsonl --reward_mode mock \
+    --batch_size 2 --num_workers 0 --epochs 1 --num_hidden_layers 2 \
+    --max_seq_len 32 --max_gen_len 64 --device cpu
+```
+
+### API 模式（需要 LiteLLM 代理在线）
+
+```bash
+python train_grpo.py --data_path ../dataset/rlaif_debug.jsonl --reward_mode api \
+    --reward_api_url http://192.168.0.81:4000/v1 \
+    --reward_api_key sk-fsl123456 \
+    --reward_api_model GLM-4.7 \
+    --batch_size 2 --num_workers 0 --epochs 1 --num_hidden_layers 2 \
+    --max_seq_len 32 --max_gen_len 64 --num_generations 2 --device cpu
+```
+
+### PyCharm 方式
+
+右上角选 **`07_debug_ppo`**、**`08_debug_grpo`** 或 **`09_debug_spo`**，已配置 `--reward_mode mock`，直接点 Debug 即可。
 
 ## 15. 完整流程
 
@@ -338,7 +377,7 @@ PyCharm 配置已准备好：**`07_debug_ppo`**、**`08_debug_grpo`**、**`09_de
 4. **`04_debug_reason`** — 推理蒸馏（学会"先想后答"）
 5. **`05_debug_dpo`** — DPO 偏好优化（学会"人类偏好"）
 6. **`06_debug_distill`** — 知识蒸馏（大模型教小模型）
-7. **`07~09_debug_ppo/grpo/spo`** — 强化学习（需 reward model）
+7. **`07~09_debug_ppo/grpo/spo`** — 强化学习（mock 模式，CPU 可跑）
 8. **`10~13_test_*`** — 分别测试各阶段模型的推理效果
 
 > 调试模式下各步骤可独立运行（`--from_weight none`），无需等前一步完成。
