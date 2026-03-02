@@ -16,7 +16,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
-from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
+from model.model_config import MiniMindConfig
+from model.model_minimind import MiniMindForCausalLM
 from model.model_lora import apply_lora, load_lora
 
 warnings.filterwarnings('ignore')

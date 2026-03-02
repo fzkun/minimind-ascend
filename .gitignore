@@ -1,4 +1,6 @@
-model/__pycache__
-out
+__pycache__/
+out/
+checkpoints/
 website/
 docs-minimind/
+.claude/
