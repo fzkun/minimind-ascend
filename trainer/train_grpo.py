@@ -16,11 +16,11 @@ from torch import optim
 from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader, DistributedSampler
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from transformers import AutoModel
 from model.model_config import MiniMindConfig
 from model.model_minimind import MiniMindForCausalLM
 from dataset.lm_dataset import RLAIFDataset
 from trainer.trainer_utils import Logger, is_main_process, lm_checkpoint, init_distributed_mode, setup_seed, SkipBatchSampler, init_model
+from trainer.reward_utils import add_reward_args, init_reward_model
 
 warnings.filterwarnings('ignore')
 
@@ -218,6 +218,7 @@ if __name__ == "__main__":
     parser.add_argument("--beta", type=float, default=0.02, help="KL惩罚系数")
     parser.add_argument("--reasoning", type=int, default=1, choices=[0, 1], help='推理模型类型（0=普通模型，1=推理模型）')
     parser.add_argument("--reward_model_path", type=str, default="../../internlm2-1_8b-reward", help="Reward模型路径")
+    add_reward_args(parser)
     parser.add_argument('--from_resume', default=0, type=int, choices=[0, 1], help="是否自动检测&续训（0=否，1=是）")
     parser.add_argument("--use_wandb", action="store_true", help="是否使用wandb")
     parser.add_argument("--wandb_project", type=str, default="MiniMind-GRPO", help="wandb项目名")
@@ -260,11 +261,7 @@ if __name__ == "__main__":
     ref_model, _ = init_model(lm_config, base_weight, device=args.device)
     ref_model = ref_model.eval().requires_grad_(False)
     # Reward模型
-    reward_model = AutoModel.from_pretrained(
-        args.reward_model_path, torch_dtype=torch.float16, trust_remote_code=True
-    )
-    reward_model = reward_model.to(args.device).eval().requires_grad_(False)
-    reward_tokenizer = AutoTokenizer.from_pretrained(args.reward_model_path, trust_remote_code=True)
+    reward_model, reward_tokenizer = init_reward_model(args)
     # 数据和优化器
     train_ds = RLAIFDataset(args.data_path, tokenizer, max_length=lm_config.max_seq_len)
     train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
